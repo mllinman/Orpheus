@@ -16,7 +16,9 @@ import ContextMenu from './components/shared/ContextMenu';
 import Modal from './components/shared/Modal';
 import DragDropOverlay from './components/shared/DragDropOverlay';
 import { useUIStore } from './stores/uiStore';
+import { useProjectStore } from './stores/projectStore';
 import { setupKeyboardShortcuts } from './utils/keyboardShortcuts';
+import { audioEngine } from './audio/AudioEngine';
 
 export default function App() {
   const {
@@ -27,6 +29,8 @@ export default function App() {
 
   useEffect(() => {
     setupKeyboardShortcuts();
+    // Wire store ref into audio engine so it can schedule clips
+    audioEngine.setStoreRef(() => useProjectStore.getState());
   }, []);
 
   const hasRightPanel = showStemSeparation || showMastering || showAutotune;

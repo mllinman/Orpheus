@@ -95,7 +95,16 @@ export default function StemSeparationPanel() {
             const litSegments = Math.floor((isActive ? state.level : 0) * segments);
 
             return (
-              <div key={stem.id} className={`stem-channel ${!isActive ? 'inactive' : ''}`}>
+              <div 
+                key={stem.id} 
+                className={`stem-channel ${!isActive ? 'inactive' : ''}`}
+                draggable="true"
+                onDragStart={(e) => {
+                  e.dataTransfer.setData('application/orpheus-stem', JSON.stringify({ id: stem.id, label: stem.label, color: stem.color }));
+                  e.dataTransfer.effectAllowed = 'copy';
+                }}
+                style={{ cursor: 'grab' }}
+              >
                 <div className="stem-channel-header">
                   <span className="stem-emoji">{stem.icon}</span>
                   <span className="stem-label">{stem.label}</span>

@@ -2,6 +2,8 @@
 // ORPHEUS DAW — Audio Engine
 // ============================================
 
+import { audioBufferManager } from './AudioBufferManager';
+
 export class AudioEngine {
     constructor() {
         this.context = null;
@@ -20,6 +22,12 @@ export class AudioEngine {
         this.scheduledSources = [];
         this.metronomeEnabled = false;
         this.listeners = new Set();
+        this._storeRef = null; // Set externally to avoid circular deps
+    }
+
+    // Called from App.jsx or main to inject the store reference
+    setStoreRef(storeRef) {
+        this._storeRef = storeRef;
     }
 
     async init() {
@@ -158,7 +166,128 @@ export class AudioEngine {
 
     _schedulePlayback() {
         this._stopAllSources();
-        // Actual audio scheduling happens per-track via TrackProcessor
+        this._scheduleClipsFromStore();
+    }
+
+    _scheduleClipsFromStore() {
+        try {
+            // Use the injected store reference
+            const store = this._storeRef ? this._storeRef() : null;
+            if (!store || !store.tracks) return;
+
+            const now = this.context.currentTime;
+            const offset = this.pauseTime; // current playback offset in seconds
+
+            for (const track of store.tracks) {
+                // Skip muted tracks or handle solo
+                const hasSolo = store.tracks.some(t => t.solo);
+                if (hasSolo && !track.solo) continue;
+                if (track.mute) continue;
+
+                const trackGain = this.context.createGain();
+                trackGain.gain.value = track.volume;
+
+                // Panning
+                let panNode = null;
+                if (this.context.createStereoPanner) {
+                    panNode = this.context.createStereoPanner();
+                    panNode.pan.value = track.pan;
+                    trackGain.connect(panNode);
+                    panNode.connect(this.masterGain);
+                } else {
+                    trackGain.connect(this.masterGain);
+                }
+
+                const destination = panNode || trackGain;
+
+                for (const clip of track.clips) {
+                    const clipStartTime = this.beatToTime(clip.startBeat);
+                    const clipEndTime = this.beatToTime(clip.startBeat + clip.lengthBeats);
+
+                    // Skip clips that have already passed
+                    if (clipEndTime <= offset) continue;
+
+                    if (clip.type === 'audio' && clip.bufferId) {
+                        const entry = audioBufferManager.getBuffer(clip.bufferId);
+                        if (!entry || !entry.buffer) continue;
+
+                        const source = this.context.createBufferSource();
+                        source.buffer = entry.buffer;
+                        const clipGain = this.context.createGain();
+                        clipGain.gain.value = clip.gain || 1;
+                        source.connect(clipGain);
+                        clipGain.connect(trackGain);
+
+                        const audioOffset = Math.max(0, offset - clipStartTime) + (clip.offset || 0);
+                        const when = now + Math.max(0, clipStartTime - offset);
+                        const duration = Math.min(
+                            entry.buffer.duration - audioOffset,
+                            clipEndTime - Math.max(offset, clipStartTime)
+                        );
+
+                        if (duration > 0) {
+                            source.start(when, audioOffset, duration);
+                            this.scheduledSources.push(source);
+                        }
+                    } else if (clip.type === 'audio' && !clip.bufferId) {
+                        // Demo audio clips without real buffers — generate noise burst
+                        const when = now + Math.max(0, clipStartTime - offset);
+                        const dur = clipEndTime - Math.max(offset, clipStartTime);
+                        if (dur > 0) {
+                            const bufLen = Math.min(dur, 30) * this.context.sampleRate;
+                            const noiseBuffer = this.context.createBuffer(1, bufLen, this.context.sampleRate);
+                            const data = noiseBuffer.getChannelData(0);
+                            for (let s = 0; s < bufLen; s++) {
+                                const t = s / this.context.sampleRate;
+                                const env = Math.min(1, t / 0.01) * Math.min(1, (dur - t) / 0.01);
+                                data[s] = (Math.sin(t * 220 * Math.PI) * 0.15 + (Math.random() - 0.5) * 0.08) * env;
+                            }
+                            const src = this.context.createBufferSource();
+                            src.buffer = noiseBuffer;
+                            const cGain = this.context.createGain();
+                            cGain.gain.value = (clip.gain || 1) * 0.3;
+                            src.connect(cGain);
+                            cGain.connect(trackGain);
+                            const audioOff = Math.max(0, offset - clipStartTime);
+                            src.start(when, audioOff);
+                            this.scheduledSources.push(src);
+                        }
+                    } else if (clip.type === 'midi' && clip.notes) {
+                        // Play MIDI notes as simple tones
+                        for (const note of clip.notes) {
+                            const noteAbsStart = this.beatToTime(clip.startBeat + note.startBeat);
+                            const noteDuration = this.beatToTime(note.lengthBeats);
+                            const noteEnd = noteAbsStart + noteDuration;
+
+                            if (noteEnd <= offset) continue;
+
+                            const freq = 440 * Math.pow(2, (note.pitch - 69) / 12);
+                            const when = now + Math.max(0, noteAbsStart - offset);
+                            const dur = Math.min(noteDuration, noteEnd - Math.max(offset, noteAbsStart));
+
+                            if (dur > 0.01) {
+                                const osc = this.context.createOscillator();
+                                const noteGain = this.context.createGain();
+                                osc.type = 'triangle';
+                                osc.frequency.value = freq;
+                                const vel = (note.velocity || 100) / 127;
+                                noteGain.gain.setValueAtTime(0.001, when);
+                                noteGain.gain.linearRampToValueAtTime(vel * 0.25, when + 0.005);
+                                noteGain.gain.setValueAtTime(vel * 0.25, when + dur - 0.01);
+                                noteGain.gain.linearRampToValueAtTime(0.001, when + dur);
+                                osc.connect(noteGain);
+                                noteGain.connect(trackGain);
+                                osc.start(when);
+                                osc.stop(when + dur);
+                                this.scheduledSources.push(osc);
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            // Store not yet available during init
+        }
     }
 
     _stopAllSources() {

@@ -277,6 +277,9 @@ export function setupKeyboardShortcuts() {
             case 'Digit6':
                 if (!ctrl) useUIStore.getState().setActiveTool('automation');
                 break;
+            case 'Digit7':
+                if (!ctrl) useUIStore.getState().setActiveTool('mute');
+                break;
 
             // ─── Delete ───
             case 'Delete':
@@ -302,6 +305,34 @@ export function setupKeyboardShortcuts() {
                 } else if (ctrl) {
                     e.preventDefault();
                     useProjectStore.getState().addTrack('audio');
+                }
+                break;
+
+            // ─── Tap Tempo ───
+            case 'KeyT':
+                if (!ctrl && !shift) {
+                    e.preventDefault();
+                    if (!window._tapTimes) window._tapTimes = [];
+                    const tapNow = Date.now();
+                    window._tapTimes.push(tapNow);
+                    if (window._tapTimes.length > 8) window._tapTimes.shift();
+                    if (window._tapTimes.length >= 2) {
+                        const intervals = [];
+                        for (let ti = 1; ti < window._tapTimes.length; ti++) {
+                            intervals.push(window._tapTimes[ti] - window._tapTimes[ti - 1]);
+                        }
+                        const avg = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+                        const tBpm = Math.round(60000 / avg);
+                        if (tBpm >= 20 && tBpm <= 300) {
+                            useProjectStore.getState().setBpm(tBpm);
+                            audioEngine.setBPM(tBpm);
+                        }
+                    }
+                    setTimeout(() => {
+                        if (window._tapTimes.length > 0 && Date.now() - window._tapTimes[window._tapTimes.length - 1] > 2000) {
+                            window._tapTimes = [];
+                        }
+                    }, 2500);
                 }
                 break;
 

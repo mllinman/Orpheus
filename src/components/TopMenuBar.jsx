@@ -26,7 +26,10 @@ const MENUS = {
     { label: 'Delete', shortcut: 'Del', action: 'delete' },
     { divider: true },
     { label: 'Select All', shortcut: 'Ctrl+A', action: 'selectAll' },
+    { label: 'Select All', shortcut: 'Ctrl+A', action: 'selectAll' },
     { label: 'Deselect All', shortcut: 'Ctrl+D', action: 'deselectAll' },
+    { divider: true },
+    { label: 'Quantize', shortcut: 'Q', action: 'quantize' },
   ],
   View: [
     { label: 'Arrangement', shortcut: 'F1', action: 'viewArrangement' },
@@ -95,14 +98,16 @@ export default function TopMenuBar() {
     isPlaying, setPlaying, setRecording, toggleLoop, setPlayheadPosition
   } = useProjectStore();
 
+  // Close menu when clicking outside
   useEffect(() => {
     const handleClick = (e) => {
       if (menuRef.current && !menuRef.current.contains(e.target)) {
         setOpenMenu(null);
       }
     };
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
+    // Use 'click' (not 'mousedown') so dropdown items fire their onMouseDown first
+    document.addEventListener('click', handleClick);
+    return () => document.removeEventListener('click', handleClick);
   }, []);
 
   // Tap tempo state
@@ -214,6 +219,10 @@ export default function TopMenuBar() {
 
       case 'deselectAll':
         ui.clearSelection();
+        break;
+
+      case 'quantize':
+        proj.quantizeSelection();
         break;
 
       // ─── View ───
@@ -407,7 +416,7 @@ export default function TopMenuBar() {
           <div
             key={menuName}
             className={`menu-trigger ${openMenu === menuName ? 'open' : ''}`}
-            onMouseDown={() => setOpenMenu(openMenu === menuName ? null : menuName)}
+            onClick={(e) => { e.stopPropagation(); setOpenMenu(openMenu === menuName ? null : menuName); }}
             onMouseEnter={() => openMenu && setOpenMenu(menuName)}
           >
             {menuName}
@@ -420,7 +429,7 @@ export default function TopMenuBar() {
                     <div
                       key={i}
                       className="dropdown-item"
-                      onClick={() => handleAction(item.action)}
+                      onMouseDown={(e) => { e.stopPropagation(); handleAction(item.action); }}
                     >
                       <span>{item.label}</span>
                       {item.shortcut && <span className="shortcut">{item.shortcut}</span>}

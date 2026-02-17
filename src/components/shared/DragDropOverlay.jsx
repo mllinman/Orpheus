@@ -2,7 +2,7 @@
 // ORPHEUS DAW — Drag & Drop Overlay
 // ============================================
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { audioBufferManager } from '../../audio/AudioBufferManager';
 import { pluginManager } from '../../audio/PluginManager';
 import { useProjectStore } from '../../stores/projectStore';
@@ -141,24 +141,28 @@ export default function DragDropOverlay() {
     setTimeout(() => setStatus(null), 3000);
   }, []);
 
+  // Register document-level drag listeners so drops are always detected
+  useEffect(() => {
+    const onEnter = (e) => { e.preventDefault(); setIsDragging(true); };
+    const onOver = (e) => { e.preventDefault(); };
+    const onLeave = (e) => { e.preventDefault(); if (e.target === document.documentElement) setIsDragging(false); };
+    document.addEventListener('dragenter', onEnter);
+    document.addEventListener('dragover', onOver);
+    document.addEventListener('dragleave', onLeave);
+    document.addEventListener('drop', handleDrop);
+    return () => {
+      document.removeEventListener('dragenter', onEnter);
+      document.removeEventListener('dragover', onOver);
+      document.removeEventListener('dragleave', onLeave);
+      document.removeEventListener('drop', handleDrop);
+    };
+  }, [handleDrop]);
+
   return (
     <>
-      {/* Global drag listeners on the entire app */}
-      <div
-        className="drag-drop-listener"
-        onDragEnter={handleDragEnter}
-        style={{
-          position: 'fixed', inset: 0, zIndex: isDragging ? 9998 : -1,
-          pointerEvents: isDragging ? 'auto' : 'none',
-        }}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-      />
-
       {/* Overlay */}
       {isDragging && (
-        <div className="drag-drop-overlay" onDragOver={handleDragOver} onDrop={handleDrop}>
+        <div className="drag-drop-overlay" onDragOver={(e) => e.preventDefault()} onDrop={handleDrop}>
           <div className="drag-drop-zone">
             <div className="drag-drop-icon">📁</div>
             <h2 className="drag-drop-title">Drop Files Here</h2>

@@ -1,13 +1,32 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useProjectStore } from '../../stores/projectStore';
 import { useUIStore } from '../../stores/uiStore';
+import { TRACK_COLORS } from '../../utils/helpers';
 
 export default function TrackHeader({ track, height }) {
-  const { toggleMute, toggleSolo, toggleArmed, setTrackVolume, setTrackPan, updateTrack, removeTrack, duplicateTrack } = useProjectStore();
+  const { toggleMute, toggleSolo, toggleArmed, setTrackVolume, setTrackPan, removeTrack, duplicateTrack, renameTrack, setTrackColor } = useProjectStore();
   const { selectedTrackId, setSelectedTrack } = useUIStore();
   const isSelected = selectedTrackId === track.id;
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState(track.name);
+  const [showColorPicker, setShowColorPicker] = useState(false);
+  const inputRef = useRef(null);
 
   const typeIcon = track.type === 'midi' ? '🎹' : '🎵';
+
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editing]);
+
+  const handleRename = () => {
+    if (editName.trim()) {
+      renameTrack(track.id, editName.trim());
+    }
+    setEditing(false);
+  };
 
   const handleContextMenu = (e) => {
     e.preventDefault();
@@ -16,8 +35,8 @@ export default function TrackHeader({ track, height }) {
       { label: 'Duplicate Track', action: () => duplicateTrack(track.id) },
       { label: 'Remove Track', action: () => removeTrack(track.id), danger: true },
       { divider: true },
-      { label: 'Rename...', action: () => {} },
-      { label: 'Change Color', action: () => {} },
+      { label: 'Rename...', action: () => { setEditing(true); setEditName(track.name); } },
+      { label: 'Change Color', action: () => setShowColorPicker(true) },
     ]);
   };
 
@@ -33,8 +52,37 @@ export default function TrackHeader({ track, height }) {
     >
       <div className="track-header-top">
         <span className="track-type-icon">{typeIcon}</span>
-        <span className="track-name truncate">{track.name}</span>
+        {editing ? (
+          <input
+            ref={inputRef}
+            className="input input-sm"
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
+            onBlur={handleRename}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleRename(); if (e.key === 'Escape') setEditing(false); }}
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: '100%', height: 20, fontSize: 11, padding: '0 4px' }}
+          />
+        ) : (
+          <span className="track-name truncate" onDoubleClick={() => { setEditing(true); setEditName(track.name); }}>
+            {track.name}
+          </span>
+        )}
       </div>
+
+      {/* Color picker popup */}
+      {showColorPicker && (
+        <div className="color-picker-popup" onClick={(e) => e.stopPropagation()}>
+          {TRACK_COLORS.map(c => (
+            <button
+              key={c}
+              className="color-swatch"
+              style={{ background: c, width: 16, height: 16, border: c === track.color ? '2px solid #fff' : '1px solid rgba(255,255,255,0.2)', borderRadius: 3, cursor: 'pointer', margin: 1, padding: 0 }}
+              onClick={() => { setTrackColor(track.id, c); setShowColorPicker(false); }}
+            />
+          ))}
+        </div>
+      )}
 
       <div className="track-header-controls">
         <button

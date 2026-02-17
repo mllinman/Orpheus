@@ -4,6 +4,7 @@
 
 import { create } from 'zustand';
 import { uid, getTrackColor, generateWaveformData } from '../utils/helpers';
+import { useUIStore } from './uiStore';
 
 const createDefaultTrack = (index, type = 'audio', name) => ({
     id: uid(),
@@ -245,6 +246,74 @@ export const useProjectStore = create((set, get) => ({
     setTrackPan: (id, pan) => set((state) => ({
         tracks: state.tracks.map(t => t.id === id ? { ...t, pan } : t)
     })),
+
+    addTrackEffect: (trackId, effect) => {
+        get()._pushUndo();
+        set((state) => ({
+            tracks: state.tracks.map(t =>
+                t.id === trackId ? { ...t, effects: [...t.effects, { ...effect, id: uid() }] } : t
+            )
+        }));
+    },
+
+    removeTrackEffect: (trackId, effectId) => {
+        get()._pushUndo();
+        set((state) => ({
+            tracks: state.tracks.map(t =>
+                t.id === trackId ? { ...t, effects: t.effects.filter(e => e.id !== effectId) } : t
+            )
+        }));
+    },
+
+    renameTrack: (trackId, name) => set((state) => ({
+        tracks: state.tracks.map(t => t.id === trackId ? { ...t, name } : t)
+    })),
+
+    setTrackColor: (trackId, color) => set((state) => ({
+        tracks: state.tracks.map(t => t.id === trackId ? { ...t, color } : t)
+    })),
+
+    quantizeSelection: (grid = 0.25) => {
+        const state = get();
+        const { selectedClipId, selectedClipTrackId } = useUIStore.getState();
+
+        if (!selectedClipId || !selectedClipTrackId) return;
+
+        const trackIndex = state.tracks.findIndex(t => t.id === selectedClipTrackId);
+        if (trackIndex === -1) return;
+
+        const track = state.tracks[trackIndex];
+        const clipIndex = track.clips.findIndex(c => c.id === selectedClipId);
+        if (clipIndex === -1) return;
+
+        state._pushUndo();
+
+        const clip = { ...track.clips[clipIndex] };
+
+        // Quantize Clip Start
+        clip.startBeat = Math.round(clip.startBeat / grid) * grid;
+
+        // If MIDI, quantize notes
+        if (clip.type === 'midi' && clip.notes) {
+            clip.notes = clip.notes.map(note => ({
+                ...note,
+                startBeat: Math.round(note.startBeat / grid) * grid,
+                lengthBeats: Math.max(grid, Math.round(note.lengthBeats / grid) * grid)
+            }));
+        }
+
+        const newTracks = [...state.tracks];
+        newTracks[trackIndex] = {
+            ...track,
+            clips: [
+                ...track.clips.slice(0, clipIndex),
+                clip,
+                ...track.clips.slice(clipIndex + 1)
+            ]
+        };
+
+        set({ tracks: newTracks });
+    },
 
     addClip: (trackId, clip) => set((state) => ({
         tracks: state.tracks.map(t =>

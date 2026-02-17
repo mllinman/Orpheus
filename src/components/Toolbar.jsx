@@ -57,7 +57,11 @@ export default function Toolbar() {
       <div className="separator" />
 
       <div className="toolbar-group">
-        <button className="btn btn-sm btn-ghost" data-tooltip="Quantize Selection">
+        <button 
+          className="btn btn-sm btn-ghost" 
+          data-tooltip="Quantize Selection (Q)"
+          onClick={() => useProjectStore.getState().quantizeSelection()}
+        >
           Quantize
         </button>
       </div>

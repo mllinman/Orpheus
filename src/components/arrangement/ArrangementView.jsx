@@ -35,8 +35,42 @@ export default function ArrangementView() {
     }
   }, []);
 
+  // Handle drop of stems
+  const handleDrop = useCallback((e) => {
+    e.preventDefault();
+    const stemData = e.dataTransfer.getData('application/orpheus-stem');
+    if (stemData) {
+      try {
+        const { label, color } = JSON.parse(stemData);
+        const store = useProjectStore.getState();
+        const trackId = store.addTrack('audio');
+        store.renameTrack(trackId, `${label} (Stem)`);
+        store.setTrackColor(trackId, color);
+        
+        // Add a demo clip
+        store.addClip(trackId, {
+          id: Date.now().toString(),
+          type: 'audio',
+          name: `${label} Clip`,
+          startBeat: 0,
+          lengthBeats: 16,
+          offset: 0,
+          gain: 1,
+          bufferId: null
+        });
+      } catch (err) {
+        console.error('Invalid stem data', err);
+      }
+    }
+  }, []);
+
   return (
-    <div className="arrangement-view" onWheel={handleWheel}>
+    <div 
+      className="arrangement-view" 
+      onWheel={handleWheel}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={handleDrop}
+    >
       {/* Track Headers Column */}
       <div className="arrangement-headers" style={{ width: trackHeaderWidth }}>
         <div className="arrangement-header-spacer">

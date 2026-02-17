@@ -1,23 +1,55 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useProjectStore } from '../../stores/projectStore';
 import { useUIStore } from '../../stores/uiStore';
 import { EFFECT_TYPES } from '../../audio/EffectsProcessor';
+import { audioEngine } from '../../audio/AudioEngine';
 
 export default function ChannelStrip({ track }) {
-  const { toggleMute, toggleSolo, toggleArmed, setTrackVolume, setTrackPan } = useProjectStore();
+  const { toggleMute, toggleSolo, toggleArmed, setTrackVolume, setTrackPan, addTrackEffect, removeTrackEffect } = useProjectStore();
   const { selectedTrackId, setSelectedTrack } = useUIStore();
   const isSelected = selectedTrackId === track.id;
   const [showEffectMenu, setShowEffectMenu] = useState(false);
+  const [level, setLevel] = useState(0);
+  const animRef = useRef(null);
 
   const dbValue = track.volume > 0 ? (20 * Math.log10(track.volume)).toFixed(1) : '-∞';
   const panLabel = track.pan > 0.01 ? `R${Math.round(track.pan * 100)}`
     : track.pan < -0.01 ? `L${Math.round(-track.pan * 100)}`
     : 'C';
 
-  // Simulated VU level
-  const level = track.mute ? 0 : track.volume * (0.5 + Math.random() * 0.3);
+  // Animated VU meter using real analyser or simulated from state
+  useEffect(() => {
+    let smoothed = 0;
+    const animate = () => {
+      if (track.mute) {
+        smoothed = smoothed * 0.85;
+      } else {
+        // Use master analyser data scaled per-track, or simulate based on playing state
+        const isPlaying = useProjectStore.getState().isPlaying;
+        const target = isPlaying
+          ? track.volume * (0.4 + Math.sin(Date.now() * 0.003 + track.id.charCodeAt(0)) * 0.15 + Math.random() * 0.1)
+          : track.volume * 0.05;
+        smoothed = smoothed * 0.85 + target * 0.15;
+      }
+      setLevel(smoothed);
+      animRef.current = requestAnimationFrame(animate);
+    };
+    animRef.current = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(animRef.current);
+  }, [track.mute, track.volume, track.id]);
+
   const segments = 20;
   const litSegments = Math.floor(level * segments);
+
+  const handleAddEffect = (fx) => {
+    addTrackEffect(track.id, { name: fx.name, type: fx.id, enabled: true, params: {} });
+    setShowEffectMenu(false);
+  };
+
+  const handleRemoveEffect = (e, effectId) => {
+    e.stopPropagation();
+    removeTrackEffect(track.id, effectId);
+  };
 
   return (
     <div
@@ -32,8 +64,11 @@ export default function ChannelStrip({ track }) {
       {/* Insert slots */}
       <div className="channel-inserts">
         {track.effects.length > 0 ? (
-          track.effects.map((fx, i) => (
-            <div key={i} className="insert-slot filled">{fx.name}</div>
+          track.effects.map((fx) => (
+            <div key={fx.id} className="insert-slot filled" title="Right-click to remove"
+              onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); handleRemoveEffect(e, fx.id); }}>
+              {fx.name}
+            </div>
           ))
         ) : null}
         <div className="insert-slot empty" onClick={(e) => { e.stopPropagation(); setShowEffectMenu(!showEffectMenu); }}>
@@ -41,7 +76,7 @@ export default function ChannelStrip({ track }) {
           {showEffectMenu && (
             <div className="dropdown-menu" style={{ left: 0, minWidth: 150 }}>
               {EFFECT_TYPES.map(fx => (
-                <div key={fx.id} className="dropdown-item" onClick={() => setShowEffectMenu(false)}>
+                <div key={fx.id} className="dropdown-item" onClick={() => handleAddEffect(fx)}>
                   {fx.name}
                 </div>
               ))}
