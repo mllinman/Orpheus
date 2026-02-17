@@ -6,6 +6,9 @@ import { audioEngine } from '../audio/AudioEngine';
 import { useProjectStore } from '../stores/projectStore';
 import { useUIStore } from '../stores/uiStore';
 
+// Clipboard storage for cut/copy/paste
+let clipboard = null;
+
 export function setupKeyboardShortcuts() {
     document.addEventListener('keydown', (e) => {
         // Don't handle shortcuts when typing in inputs
@@ -17,7 +20,7 @@ export function setupKeyboardShortcuts() {
         const shift = e.shiftKey;
 
         switch (e.code) {
-            // Transport
+            // ─── Transport ───
             case 'Space':
                 e.preventDefault();
                 if (useProjectStore.getState().isPlaying) {
@@ -25,23 +28,34 @@ export function setupKeyboardShortcuts() {
                     useProjectStore.getState().setPlaying(false);
                     useProjectStore.getState().setPlayheadPosition(0);
                 } else {
-                    audioEngine.play();
-                    useProjectStore.getState().setPlaying(true);
+                    audioEngine.init().then(() => {
+                        audioEngine.setBPM(useProjectStore.getState().bpm);
+                        audioEngine.play();
+                        useProjectStore.getState().setPlaying(true);
+                    });
                 }
                 break;
 
             case 'KeyR':
                 if (!ctrl) {
                     e.preventDefault();
-                    audioEngine.toggleRecord();
-                    useProjectStore.getState().setRecording(audioEngine.isRecording);
+                    audioEngine.init().then(() => {
+                        audioEngine.toggleRecord();
+                        useProjectStore.getState().setRecording(audioEngine.isRecording);
+                        if (!useProjectStore.getState().isPlaying && audioEngine.isRecording) {
+                            audioEngine.play();
+                            useProjectStore.getState().setPlaying(true);
+                        }
+                    });
                 }
                 break;
 
             case 'KeyL':
-                e.preventDefault();
-                useProjectStore.getState().toggleLoop();
-                audioEngine.toggleLoop();
+                if (!ctrl) {
+                    e.preventDefault();
+                    useProjectStore.getState().toggleLoop();
+                    audioEngine.toggleLoop();
+                }
                 break;
 
             case 'KeyM':
@@ -51,7 +65,28 @@ export function setupKeyboardShortcuts() {
                 }
                 break;
 
-            // Zoom
+            case 'Home':
+                e.preventDefault();
+                audioEngine.seekTo(0);
+                useProjectStore.getState().setPlayheadPosition(0);
+                break;
+
+            case 'End': {
+                e.preventDefault();
+                let maxBeat = 32;
+                useProjectStore.getState().tracks.forEach(t => {
+                    t.clips.forEach(c => {
+                        const end = c.startBeat + c.lengthBeats;
+                        if (end > maxBeat) maxBeat = end;
+                    });
+                });
+                const endTime = audioEngine.beatToTime(maxBeat);
+                audioEngine.seekTo(endTime);
+                useProjectStore.getState().setPlayheadPosition(maxBeat);
+                break;
+            }
+
+            // ─── Zoom ───
             case 'Equal':
             case 'NumpadAdd':
                 if (ctrl) {
@@ -68,26 +103,132 @@ export function setupKeyboardShortcuts() {
                 }
                 break;
 
-            // Undo/Redo
-            case 'KeyZ':
-                if (ctrl && shift) {
+            case 'Digit0':
+                if (ctrl) {
                     e.preventDefault();
-                    // Redo
-                } else if (ctrl) {
-                    e.preventDefault();
-                    // Undo
+                    useUIStore.getState().setHorizontalZoom(40); // Zoom to fit
                 }
                 break;
 
-            // Save
-            case 'KeyS':
+            // ─── Undo/Redo ───
+            case 'KeyZ':
+                if (ctrl && shift) {
+                    e.preventDefault();
+                    useProjectStore.getState().redo();
+                } else if (ctrl) {
+                    e.preventDefault();
+                    useProjectStore.getState().undo();
+                }
+                break;
+
+            // ─── Cut/Copy/Paste ───
+            case 'KeyX':
                 if (ctrl) {
+                    e.preventDefault();
+                    const ui1 = useUIStore.getState();
+                    const proj1 = useProjectStore.getState();
+                    if (ui1.selectedClipId && ui1.selectedClipTrackId) {
+                        const track = proj1.tracks.find(t => t.id === ui1.selectedClipTrackId);
+                        const clip = track?.clips.find(c => c.id === ui1.selectedClipId);
+                        if (clip) {
+                            clipboard = JSON.parse(JSON.stringify(clip));
+                            proj1.removeClip(ui1.selectedClipTrackId, ui1.selectedClipId);
+                            ui1.clearSelection();
+                        }
+                    }
+                }
+                break;
+
+            case 'KeyC':
+                if (ctrl) {
+                    e.preventDefault();
+                    const ui2 = useUIStore.getState();
+                    const proj2 = useProjectStore.getState();
+                    if (ui2.selectedClipId && ui2.selectedClipTrackId) {
+                        const track = proj2.tracks.find(t => t.id === ui2.selectedClipTrackId);
+                        const clip = track?.clips.find(c => c.id === ui2.selectedClipId);
+                        if (clip) {
+                            clipboard = JSON.parse(JSON.stringify(clip));
+                        }
+                    }
+                }
+                break;
+
+            case 'KeyV':
+                if (ctrl) {
+                    e.preventDefault();
+                    if (clipboard) {
+                        const ui3 = useUIStore.getState();
+                        const proj3 = useProjectStore.getState();
+                        const targetTrackId = ui3.selectedTrackId || (proj3.tracks[0]?.id);
+                        if (targetTrackId) {
+                            const newClip = {
+                                ...clipboard,
+                                id: Date.now().toString(36) + Math.random().toString(36).slice(2),
+                                startBeat: clipboard.startBeat + clipboard.lengthBeats,
+                            };
+                            proj3.addClip(targetTrackId, newClip);
+                        }
+                    }
+                }
+                break;
+
+            case 'KeyA':
+                if (ctrl) {
+                    e.preventDefault();
+                    const proj4 = useProjectStore.getState();
+                    if (proj4.tracks.length > 0) {
+                        useUIStore.getState().setSelectedTrack(proj4.tracks[0].id);
+                    }
+                }
+                break;
+
+            case 'KeyD':
+                if (ctrl && !shift) {
+                    e.preventDefault();
+                    useUIStore.getState().clearSelection();
+                }
+                break;
+
+            // ─── File Operations ───
+            case 'KeyN':
+                if (ctrl) {
+                    e.preventDefault();
+                    if (confirm('Create a new project? Unsaved changes will be lost.')) {
+                        audioEngine.stop();
+                        useProjectStore.getState().setPlaying(false);
+                        useProjectStore.getState().newProject();
+                    }
+                }
+                break;
+
+            case 'KeyO':
+                if (ctrl) {
+                    e.preventDefault();
+                    // Trigger file input — find and click it
+                    const fileInput = document.querySelector('input[type="file"][accept*=".orpheus"]');
+                    if (fileInput) fileInput.click();
+                }
+                break;
+
+            case 'KeyS':
+                if (ctrl && shift) {
+                    e.preventDefault();
+                    useProjectStore.getState().exportProject(); // Save As = download file
+                } else if (ctrl) {
                     e.preventDefault();
                     useProjectStore.getState().saveProject();
                 }
                 break;
 
-            // Views
+            case 'KeyE':
+                if (ctrl && shift) {
+                    e.preventDefault();
+                    useUIStore.getState().setActiveModal('export');
+                }
+                break;
+
+            // ─── Views ───
             case 'F1':
                 e.preventDefault();
                 useUIStore.getState().setActiveView('arrangement');
@@ -104,8 +245,20 @@ export function setupKeyboardShortcuts() {
                 e.preventDefault();
                 useUIStore.getState().toggleBrowser();
                 break;
+            case 'F5':
+                e.preventDefault();
+                useUIStore.getState().toggleStemSeparation();
+                break;
+            case 'F6':
+                e.preventDefault();
+                useUIStore.getState().toggleMastering();
+                break;
+            case 'F7':
+                e.preventDefault();
+                useUIStore.getState().toggleAutotune();
+                break;
 
-            // Tools
+            // ─── Tools ───
             case 'Digit1':
                 if (!ctrl) useUIStore.getState().setActiveTool('pointer');
                 break;
@@ -125,7 +278,7 @@ export function setupKeyboardShortcuts() {
                 if (!ctrl) useUIStore.getState().setActiveTool('automation');
                 break;
 
-            // Delete
+            // ─── Delete ───
             case 'Delete':
             case 'Backspace': {
                 e.preventDefault();
@@ -134,11 +287,14 @@ export function setupKeyboardShortcuts() {
                 if (ui.selectedClipId && ui.selectedClipTrackId) {
                     proj.removeClip(ui.selectedClipTrackId, ui.selectedClipId);
                     ui.clearSelection();
+                } else if (ui.selectedTrackId) {
+                    proj.removeTrack(ui.selectedTrackId);
+                    ui.clearSelection();
                 }
                 break;
             }
 
-            // Add tracks
+            // ─── Add tracks ───
             case 'KeyT':
                 if (ctrl && shift) {
                     e.preventDefault();
@@ -149,6 +305,7 @@ export function setupKeyboardShortcuts() {
                 }
                 break;
 
+            // ─── Escape ───
             case 'Escape':
                 useUIStore.getState().hideContextMenu();
                 useUIStore.getState().closeModal();

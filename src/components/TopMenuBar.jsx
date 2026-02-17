@@ -1,6 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useProjectStore } from '../stores/projectStore';
 import { useUIStore } from '../stores/uiStore';
+import { audioEngine } from '../audio/AudioEngine';
 
 const MENUS = {
   File: [
@@ -11,7 +12,7 @@ const MENUS = {
     { label: 'Save As...', shortcut: 'Ctrl+Shift+S', action: 'saveAs' },
     { divider: true },
     { label: 'Export Audio...', shortcut: 'Ctrl+Shift+E', action: 'export' },
-    { label: 'Export MIDI...', action: 'exportMidi' },
+    { label: 'Export Project File...', action: 'exportProject' },
     { divider: true },
     { label: 'Project Settings...', action: 'settings' },
   ],
@@ -33,6 +34,10 @@ const MENUS = {
     { label: 'Piano Roll', shortcut: 'F3', action: 'viewPianoRoll' },
     { label: 'Browser', shortcut: 'F4', action: 'viewBrowser' },
     { divider: true },
+    { label: 'STEM Separation', shortcut: 'F5', action: 'viewStemSeparation' },
+    { label: 'Mastering', shortcut: 'F6', action: 'viewMastering' },
+    { label: 'Autotune', shortcut: 'F7', action: 'viewAutotune' },
+    { divider: true },
     { label: 'Zoom In', shortcut: 'Ctrl++', action: 'zoomIn' },
     { label: 'Zoom Out', shortcut: 'Ctrl+-', action: 'zoomOut' },
     { label: 'Zoom to Fit', shortcut: 'Ctrl+0', action: 'zoomFit' },
@@ -42,10 +47,10 @@ const MENUS = {
     { label: 'Add MIDI Track', shortcut: 'Ctrl+Shift+T', action: 'addMidi' },
     { label: 'Add Instrument Track', action: 'addInstrument' },
     { divider: true },
-    { label: 'Duplicate Track', shortcut: 'Ctrl+D', action: 'duplicateTrack' },
+    { label: 'Duplicate Track', action: 'duplicateTrack' },
     { label: 'Remove Track', action: 'removeTrack' },
     { divider: true },
-    { label: 'Group Tracks', action: 'groupTracks' },
+    { label: 'Add Automation Lane', action: 'addAutomation' },
     { label: 'Freeze Track', action: 'freezeTrack' },
   ],
   Transport: [
@@ -70,9 +75,25 @@ const MENUS = {
 export default function TopMenuBar() {
   const [openMenu, setOpenMenu] = useState(null);
   const menuRef = useRef(null);
+  const fileInputRef = useRef(null);
   const projectName = useProjectStore(s => s.projectName);
-  const { addTrack, saveProject, exportProject, newProject } = useProjectStore();
-  const { setActiveView, toggleMixer, togglePianoRoll, toggleBrowser, zoomIn, zoomOut, setActiveModal } = useUIStore();
+  const clipboard = useRef(null); // For cut/copy/paste
+
+  // UI Store
+  const {
+    setActiveView, toggleMixer, togglePianoRoll, toggleBrowser,
+    toggleStemSeparation, toggleMastering, toggleAutotune,
+    zoomIn, zoomOut, setHorizontalZoom, setActiveModal,
+    selectedTrackId, selectedClipId, selectedClipTrackId, clearSelection
+  } = useUIStore();
+
+  // Project Store
+  const {
+    addTrack, saveProject, exportProject, newProject,
+    undo, redo, removeTrack, duplicateTrack, removeClip,
+    importProject, addAutomationLane, tracks, bpm,
+    isPlaying, setPlaying, setRecording, toggleLoop, setPlayheadPosition
+  } = useProjectStore();
 
   useEffect(() => {
     const handleClick = (e) => {
@@ -84,24 +105,295 @@ export default function TopMenuBar() {
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
-  const handleAction = (action) => {
+  // Tap tempo state
+  const tapTimes = useRef([]);
+
+  const handleAction = useCallback((action) => {
     setOpenMenu(null);
+    const proj = useProjectStore.getState();
+    const ui = useUIStore.getState();
+
     switch (action) {
-      case 'newProject': newProject(); break;
-      case 'save': saveProject(); break;
-      case 'export': exportProject(); break;
-      case 'addAudio': addTrack('audio'); break;
-      case 'addMidi': addTrack('midi'); break;
-      case 'addInstrument': addTrack('midi'); break;
-      case 'viewArrangement': setActiveView('arrangement'); break;
-      case 'viewMixer': toggleMixer(); break;
-      case 'viewPianoRoll': togglePianoRoll(); break;
-      case 'viewBrowser': toggleBrowser(); break;
-      case 'zoomIn': zoomIn(); break;
-      case 'zoomOut': zoomOut(); break;
-      case 'about': setActiveModal('about'); break;
-      case 'settings': setActiveModal('settings'); break;
+      // ─── File ───
+      case 'newProject':
+        if (confirm('Create a new project? Unsaved changes will be lost.')) {
+          audioEngine.stop();
+          proj.setPlaying(false);
+          proj.newProject();
+        }
+        break;
+
+      case 'openProject':
+        // Trigger hidden file input
+        if (fileInputRef.current) fileInputRef.current.click();
+        break;
+
+      case 'save':
+        proj.saveProject();
+        break;
+
+      case 'saveAs':
+        // Download the project as a .orpheus file
+        proj.exportProject();
+        break;
+
+      case 'export':
+        setActiveModal('export');
+        break;
+
+      case 'exportProject':
+        proj.exportProject();
+        break;
+
+      case 'settings':
+        setActiveModal('settings');
+        break;
+
+      // ─── Edit ───
+      case 'undo':
+        proj.undo();
+        break;
+
+      case 'redo':
+        proj.redo();
+        break;
+
+      case 'cut':
+        // Cut = copy + delete the selected clip
+        if (ui.selectedClipId && ui.selectedClipTrackId) {
+          const track = proj.tracks.find(t => t.id === ui.selectedClipTrackId);
+          const clip = track?.clips.find(c => c.id === ui.selectedClipId);
+          if (clip) {
+            clipboard.current = JSON.parse(JSON.stringify(clip));
+            proj.removeClip(ui.selectedClipTrackId, ui.selectedClipId);
+            ui.clearSelection();
+          }
+        }
+        break;
+
+      case 'copy':
+        if (ui.selectedClipId && ui.selectedClipTrackId) {
+          const track = proj.tracks.find(t => t.id === ui.selectedClipTrackId);
+          const clip = track?.clips.find(c => c.id === ui.selectedClipId);
+          if (clip) {
+            clipboard.current = JSON.parse(JSON.stringify(clip));
+          }
+        }
+        break;
+
+      case 'paste':
+        if (clipboard.current) {
+          const targetTrackId = ui.selectedTrackId || (proj.tracks[0]?.id);
+          if (targetTrackId) {
+            const newClip = {
+              ...clipboard.current,
+              id: Date.now().toString(36) + Math.random().toString(36).slice(2),
+              startBeat: clipboard.current.startBeat + clipboard.current.lengthBeats,
+            };
+            proj.addClip(targetTrackId, newClip);
+          }
+        }
+        break;
+
+      case 'delete':
+        if (ui.selectedClipId && ui.selectedClipTrackId) {
+          proj.removeClip(ui.selectedClipTrackId, ui.selectedClipId);
+          ui.clearSelection();
+        } else if (ui.selectedTrackId) {
+          proj.removeTrack(ui.selectedTrackId);
+          ui.clearSelection();
+        }
+        break;
+
+      case 'selectAll':
+        // Select first track if none selected
+        if (proj.tracks.length > 0 && !ui.selectedTrackId) {
+          ui.setSelectedTrack(proj.tracks[0].id);
+        }
+        break;
+
+      case 'deselectAll':
+        ui.clearSelection();
+        break;
+
+      // ─── View ───
+      case 'viewArrangement':
+        setActiveView('arrangement');
+        break;
+      case 'viewMixer':
+        toggleMixer();
+        break;
+      case 'viewPianoRoll':
+        togglePianoRoll();
+        break;
+      case 'viewBrowser':
+        toggleBrowser();
+        break;
+      case 'viewStemSeparation':
+        toggleStemSeparation();
+        break;
+      case 'viewMastering':
+        toggleMastering();
+        break;
+      case 'viewAutotune':
+        toggleAutotune();
+        break;
+      case 'zoomIn':
+        zoomIn();
+        break;
+      case 'zoomOut':
+        zoomOut();
+        break;
+      case 'zoomFit':
+        // Fit all content into view: reset to a reasonable zoom
+        setHorizontalZoom(40);
+        break;
+
+      // ─── Track ───
+      case 'addAudio':
+        proj.addTrack('audio');
+        break;
+      case 'addMidi':
+        proj.addTrack('midi');
+        break;
+      case 'addInstrument':
+        proj.addTrack('midi');
+        break;
+      case 'duplicateTrack':
+        if (ui.selectedTrackId) {
+          proj.duplicateTrack(ui.selectedTrackId);
+        } else if (proj.tracks.length > 0) {
+          proj.duplicateTrack(proj.tracks[proj.tracks.length - 1].id);
+        }
+        break;
+      case 'removeTrack':
+        if (ui.selectedTrackId) {
+          proj.removeTrack(ui.selectedTrackId);
+          ui.clearSelection();
+        }
+        break;
+      case 'addAutomation':
+        if (ui.selectedTrackId) {
+          proj.addAutomationLane(ui.selectedTrackId);
+        } else if (proj.tracks.length > 0) {
+          proj.addAutomationLane(proj.tracks[0].id);
+        }
+        break;
+      case 'freezeTrack':
+        // Visual feedback: freeze is a no-op placeholder (would require offline rendering per track)
+        break;
+
+      // ─── Transport ───
+      case 'playStop':
+        (async () => {
+          if (proj.isPlaying) {
+            audioEngine.stop();
+            proj.setPlaying(false);
+            proj.setPlayheadPosition(0);
+          } else {
+            await audioEngine.init();
+            audioEngine.setBPM(proj.bpm);
+            audioEngine.play();
+            proj.setPlaying(true);
+          }
+        })();
+        break;
+
+      case 'record':
+        (async () => {
+          await audioEngine.init();
+          audioEngine.toggleRecord();
+          proj.setRecording(audioEngine.isRecording);
+          if (!proj.isPlaying && audioEngine.isRecording) {
+            audioEngine.play();
+            proj.setPlaying(true);
+          }
+        })();
+        break;
+
+      case 'loop':
+        proj.toggleLoop();
+        audioEngine.toggleLoop();
+        break;
+
+      case 'metronome':
+        audioEngine.toggleMetronome();
+        break;
+
+      case 'tapTempo': {
+        const now = Date.now();
+        tapTimes.current.push(now);
+        // Keep only last 8 taps
+        if (tapTimes.current.length > 8) tapTimes.current.shift();
+        if (tapTimes.current.length >= 2) {
+          const intervals = [];
+          for (let i = 1; i < tapTimes.current.length; i++) {
+            intervals.push(tapTimes.current[i] - tapTimes.current[i - 1]);
+          }
+          const avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+          const tappedBpm = Math.round(60000 / avgInterval);
+          if (tappedBpm >= 20 && tappedBpm <= 300) {
+            proj.setBpm(tappedBpm);
+            audioEngine.setBPM(tappedBpm);
+          }
+        }
+        // Reset taps if >2 seconds gap
+        setTimeout(() => {
+          if (tapTimes.current.length > 0 && Date.now() - tapTimes.current[tapTimes.current.length - 1] > 2000) {
+            tapTimes.current = [];
+          }
+        }, 2500);
+        break;
+      }
+
+      case 'goToStart':
+        audioEngine.seekTo(0);
+        proj.setPlayheadPosition(0);
+        break;
+
+      case 'goToEnd': {
+        // Find the last beat in the project
+        let maxBeat = 32;
+        proj.tracks.forEach(t => {
+          t.clips.forEach(c => {
+            const end = c.startBeat + c.lengthBeats;
+            if (end > maxBeat) maxBeat = end;
+          });
+        });
+        const endTime = audioEngine.beatToTime(maxBeat);
+        audioEngine.seekTo(endTime);
+        proj.setPlayheadPosition(maxBeat);
+        break;
+      }
+
+      // ─── Help ───
+      case 'shortcuts':
+        setActiveModal('shortcuts');
+        break;
+      case 'docs':
+        // Open docs in a new tab (placeholder)
+        window.open('https://github.com', '_blank');
+        break;
+      case 'about':
+        setActiveModal('about');
+        break;
+
+      default:
+        console.log('Unhandled action:', action);
     }
+  }, []);
+
+  // Handle file import
+  const handleFileImport = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      await useProjectStore.getState().importProject(file);
+    } catch (err) {
+      alert('Failed to open project: ' + err.message);
+    }
+    // Reset input
+    e.target.value = '';
   };
 
   return (
@@ -148,6 +440,15 @@ export default function TopMenuBar() {
           <span className="indicator-bar"><span className="indicator-fill" style={{ width: '12%' }} /></span>
         </span>
       </div>
+
+      {/* Hidden file input for Open Project */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".orpheus,.json"
+        style={{ display: 'none' }}
+        onChange={handleFileImport}
+      />
     </div>
   );
 }

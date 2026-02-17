@@ -13,7 +13,9 @@ const TOOLS = [
 ];
 
 export default function Toolbar() {
-  const { activeTool, setActiveTool, snapEnabled, snapValue, setSnapEnabled, setSnapValue } = useUIStore();
+  const { activeTool, setActiveTool, snapEnabled, snapValue, setSnapEnabled, setSnapValue,
+    showStemSeparation, showMastering, showAutotune,
+    toggleStemSeparation, toggleMastering, toggleAutotune } = useUIStore();
 
   return (
     <div className="toolbar">
@@ -57,6 +59,33 @@ export default function Toolbar() {
       <div className="toolbar-group">
         <button className="btn btn-sm btn-ghost" data-tooltip="Quantize Selection">
           Quantize
+        </button>
+      </div>
+
+      <div className="toolbar-spacer" />
+
+      {/* Advanced Feature Toggles */}
+      <div className="toolbar-group toolbar-features">
+        <button
+          className={`btn btn-sm btn-feature ${showStemSeparation ? 'active' : ''}`}
+          onClick={toggleStemSeparation}
+          data-tooltip="STEM Separation (F5)"
+        >
+          🎚 STEM
+        </button>
+        <button
+          className={`btn btn-sm btn-feature ${showMastering ? 'active' : ''}`}
+          onClick={toggleMastering}
+          data-tooltip="Mastering (F6)"
+        >
+          🎛 Master
+        </button>
+        <button
+          className={`btn btn-sm btn-feature ${showAutotune ? 'active' : ''}`}
+          onClick={toggleAutotune}
+          data-tooltip="Autotune (F7)"
+        >
+          🎤 Tune
         </button>
       </div>
     </div>

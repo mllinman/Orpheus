@@ -5,6 +5,7 @@ import TrackHeader from './TrackHeader';
 import TrackLane from './TrackLane';
 import TimelineRuler from './TimelineRuler';
 import Playhead from './Playhead';
+import AutomationLane from './AutomationLane';
 
 export default function ArrangementView() {
   const tracks = useProjectStore(s => s.tracks);
@@ -66,14 +67,18 @@ export default function ArrangementView() {
         >
           <div className="arrangement-lanes" style={{ width: totalWidth, minWidth: '100%' }}>
             {tracks.map((track, i) => (
-              <TrackLane
-                key={track.id}
-                track={track}
-                trackIndex={i}
-                height={trackHeight}
-                pixelsPerBeat={horizontalZoom}
-                totalWidth={totalWidth}
-              />
+              <React.Fragment key={track.id}>
+                <TrackLane
+                  track={track}
+                  trackIndex={i}
+                  height={trackHeight}
+                  pixelsPerBeat={horizontalZoom}
+                  totalWidth={totalWidth}
+                />
+                {(track.automationLanes || []).map((lane, li) => (
+                  <AutomationLane key={`${track.id}-auto-${li}`} trackId={track.id} laneIndex={li} />
+                ))}
+              </React.Fragment>
             ))}
           </div>
           <Playhead pixelsPerBeat={horizontalZoom} totalHeight={tracks.length * trackHeight} />

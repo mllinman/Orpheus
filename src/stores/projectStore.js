@@ -144,7 +144,46 @@ export const useProjectStore = create((set, get) => ({
     // Undo/redo
     undoStack: [],
     redoStack: [],
+    _maxHistory: 50,
 
+    // Push current state to undo stack before making changes
+    _pushUndo: () => {
+        const state = get();
+        const snapshot = {
+            tracks: JSON.parse(JSON.stringify(state.tracks)),
+            projectName: state.projectName,
+            bpm: state.bpm,
+            timeSignature: state.timeSignature,
+        };
+        set(prev => ({
+            undoStack: [...prev.undoStack.slice(-prev._maxHistory), snapshot],
+            redoStack: [],
+        }));
+    },
+
+    undo: () => {
+        const { undoStack, tracks, projectName, bpm, timeSignature } = get();
+        if (undoStack.length === 0) return;
+        const current = { tracks: JSON.parse(JSON.stringify(tracks)), projectName, bpm, timeSignature };
+        const prev = undoStack[undoStack.length - 1];
+        set({
+            ...prev,
+            undoStack: undoStack.slice(0, -1),
+            redoStack: [...get().redoStack, current],
+        });
+    },
+
+    redo: () => {
+        const { redoStack, tracks, projectName, bpm, timeSignature } = get();
+        if (redoStack.length === 0) return;
+        const current = { tracks: JSON.parse(JSON.stringify(tracks)), projectName, bpm, timeSignature };
+        const next = redoStack[redoStack.length - 1];
+        set({
+            ...next,
+            redoStack: redoStack.slice(0, -1),
+            undoStack: [...get().undoStack, current],
+        });
+    },
     // Actions
     setProjectName: (name) => set({ projectName: name }),
     setBpm: (bpm) => set({ bpm: Math.max(20, Math.min(300, bpm)) }),
@@ -158,13 +197,15 @@ export const useProjectStore = create((set, get) => ({
     setLoopRange: (start, end) => set({ loopStart: start, loopEnd: end }),
 
     addTrack: (type = 'audio') => set((state) => {
+        get()._pushUndo();
         const track = createDefaultTrack(state.tracks.length, type);
         return { tracks: [...state.tracks, track] };
     }),
 
-    removeTrack: (id) => set((state) => ({
-        tracks: state.tracks.filter(t => t.id !== id)
-    })),
+    removeTrack: (id) => {
+        get()._pushUndo();
+        set((state) => ({ tracks: state.tracks.filter(t => t.id !== id) }));
+    },
 
     duplicateTrack: (id) => set((state) => {
         const source = state.tracks.find(t => t.id === id);
@@ -263,6 +304,39 @@ export const useProjectStore = create((set, get) => ({
         )
     })),
 
+    // Automation
+    updateTrackAutomation: (trackId, laneIndex, param, points) => set((state) => ({
+        tracks: state.tracks.map(t => {
+            if (t.id !== trackId) return t;
+            const lanes = [...(t.automationLanes || [])];
+            while (lanes.length <= laneIndex) lanes.push({ param: 'volume', points: [] });
+            lanes[laneIndex] = { param, points };
+            return { ...t, automationLanes: lanes };
+        })
+    })),
+
+    addAutomationLane: (trackId) => {
+        get()._pushUndo();
+        set((state) => ({
+            tracks: state.tracks.map(t =>
+                t.id === trackId
+                    ? { ...t, automationLanes: [...(t.automationLanes || []), { param: 'volume', points: [{ beat: 0, value: 0.75 }, { beat: 32, value: 0.75 }] }] }
+                    : t
+            )
+        }));
+    },
+
+    removeAutomationLane: (trackId, laneIndex) => {
+        get()._pushUndo();
+        set((state) => ({
+            tracks: state.tracks.map(t =>
+                t.id === trackId
+                    ? { ...t, automationLanes: (t.automationLanes || []).filter((_, i) => i !== laneIndex) }
+                    : t
+            )
+        }));
+    },
+
     // Serialization
     saveProject: () => {
         const state = get();
@@ -322,5 +396,32 @@ export const useProjectStore = create((set, get) => ({
         playheadPosition: 0,
         isPlaying: false,
         isRecording: false,
+        undoStack: [],
+        redoStack: [],
     }),
+
+    // Import project from file
+    importProject: (file) => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    set({
+                        ...data,
+                        isPlaying: false,
+                        isRecording: false,
+                        playheadPosition: 0,
+                        undoStack: [],
+                        redoStack: [],
+                    });
+                    resolve(true);
+                } catch {
+                    reject(new Error('Invalid project file'));
+                }
+            };
+            reader.onerror = () => reject(new Error('Failed to read file'));
+            reader.readAsText(file);
+        });
+    },
 }));

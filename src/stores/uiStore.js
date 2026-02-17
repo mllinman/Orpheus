@@ -10,6 +10,9 @@ export const useUIStore = create((set, get) => ({
     showBrowser: false,
     showMixer: true,
     showPianoRoll: false,
+    showStemSeparation: false,
+    showMastering: false,
+    showAutotune: false,
 
     // Panel sizes
     browserWidth: 250,
@@ -46,6 +49,9 @@ export const useUIStore = create((set, get) => ({
     toggleBrowser: () => set((s) => ({ showBrowser: !s.showBrowser })),
     toggleMixer: () => set((s) => ({ showMixer: !s.showMixer })),
     togglePianoRoll: () => set((s) => ({ showPianoRoll: !s.showPianoRoll })),
+    toggleStemSeparation: () => set((s) => ({ showStemSeparation: !s.showStemSeparation })),
+    toggleMastering: () => set((s) => ({ showMastering: !s.showMastering })),
+    toggleAutotune: () => set((s) => ({ showAutotune: !s.showAutotune })),
 
     setBrowserWidth: (w) => set({ browserWidth: Math.max(200, Math.min(500, w)) }),
     setMixerHeight: (h) => set({ mixerHeight: Math.max(150, Math.min(500, h)) }),
