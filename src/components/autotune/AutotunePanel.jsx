@@ -31,17 +31,27 @@ function getNoteFromFrequency(frequency) {
   return { note, cents };
 }
 
-export default function AutotunePanel() {
-  const [enabled, setEnabled] = useState(false);
-  const [key, setKey] = useState('C');
-  const [scale, setScale] = useState('chromatic');
-  const [speed, setSpeed] = useState(0.5);
-  const [amount, setAmount] = useState(1.0);
-  const [formantPreserve, setFormantPreserve] = useState(true);
-  const [humanize, setHumanize] = useState(0.1);
-  const [retune, setRetune] = useState(0);
+  return { note, cents };
+}
 
-  // Simulated detection display
+export default function AutotunePanel() {
+  const { selectedTrackId } = useUIStore();
+  const { tracks, setTrackAutotune } = useProjectStore();
+  
+  const track = tracks.find(t => t.id === selectedTrackId);
+  const config = track?.autotune || { 
+      enabled: false, key: 'C', scale: 'chromatic', 
+      speed: 0.5, amount: 1.0, humanize: 0.1, retune: 0, formant: true 
+  };
+
+  const updateParam = (key, value) => {
+      if (!track) return;
+      setTrackAutotune(track.id, { [key]: value });
+      // Notify engine for realtime update
+      audioEngine.setAutotuneParam(track.id, key, value);
+  };
+  
+  // Local state for visualization only
   const [detectedPitch, setDetectedPitch] = useState(0);
   const [detectedNote, setDetectedNote] = useState('--');
   const [targetNote, setTargetNote] = useState('--');
@@ -50,10 +60,25 @@ export default function AutotunePanel() {
 
   const animRef = useRef(null);
 
+  if (!track) {
+      return (
+          <div className="autotune-panel">
+              <div className="autotune-header">
+                  <div className="autotune-title-row">
+                      <span className="autotune-title">AUTOTUNE</span>
+                  </div>
+              </div>
+              <div className="autotune-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)' }}>
+                  Select a track to edit Autotune settings
+              </div>
+          </div>
+      );
+  }
+
   // Real pitch detection visualization
   useEffect(() => {
     const animate = () => {
-      if (enabled) {
+      if (config.enabled) {
         const { detectedPitch, clarity } = audioEngine.getDetectedPitch();
         
         if (clarity > 0.8 && detectedPitch > 50) {
@@ -75,12 +100,12 @@ export default function AutotunePanel() {
   }, [enabled]);
 
   // Get active scale notes for the keyboard display
-  const keyIndex = KEYS.indexOf(key);
-  const scaleIntervals = PitchCorrector.SCALES[scale] || PitchCorrector.SCALES.chromatic;
+  const keyIndex = KEYS.indexOf(config.key);
+  const scaleIntervals = PitchCorrector.SCALES[config.scale] || PitchCorrector.SCALES.chromatic;
   const activeNotes = scaleIntervals.map(i => (i + keyIndex) % 12);
 
-  const speedLabel = speed < 0.2 ? 'Natural' : speed < 0.5 ? 'Moderate' : speed < 0.8 ? 'Fast' : 'Hard Tune';
-  const speedColor = speed < 0.5 ? 'var(--accent-success)' : speed < 0.8 ? 'var(--accent-warning)' : 'var(--accent-danger)';
+  const speedLabel = config.speed < 0.2 ? 'Natural' : config.speed < 0.5 ? 'Moderate' : config.speed < 0.8 ? 'Fast' : 'Hard Tune';
+  const speedColor = config.speed < 0.5 ? 'var(--accent-success)' : config.speed < 0.8 ? 'var(--accent-warning)' : 'var(--accent-danger)';
 
   return (
     <div className="autotune-panel">
@@ -89,14 +114,10 @@ export default function AutotunePanel() {
           <span style={{ fontSize: 16 }}>🎤</span>
           <span className="autotune-title">AUTOTUNE</span>
           <button
-            className={`btn btn-sm ${enabled ? 'active' : ''}`}
-            onClick={() => {
-                const newState = !enabled;
-                setEnabled(newState);
-                audioEngine.setAutotuneParam('enabled', newState);
-            }}
+            className={`btn btn-sm ${config.enabled ? 'active' : ''}`}
+            onClick={() => updateParam('enabled', !config.enabled)}
           >
-            {enabled ? 'ON' : 'OFF'}
+            {config.enabled ? 'ON' : 'OFF'}
           </button>
         </div>
       </div>
@@ -106,12 +127,12 @@ export default function AutotunePanel() {
         <div className="autotune-pitch-display">
           <div className="pitch-detected">
             <div className="pitch-note-large mono" style={{
-              color: enabled ? (Math.abs(centsOff) < 10 ? 'var(--accent-success)' : 'var(--accent-warning)') : 'var(--text-muted)'
+              color: config.enabled ? (Math.abs(centsOff) < 10 ? 'var(--accent-success)' : 'var(--accent-warning)') : 'var(--text-muted)'
             }}>
-              {enabled ? detectedNote : '--'}
+              {config.enabled ? detectedNote : '--'}
             </div>
             <div className="pitch-freq mono">
-              {enabled ? `${detectedPitch.toFixed(1)} Hz` : '--- Hz'}
+              {config.enabled ? `${detectedPitch.toFixed(1)} Hz` : '--- Hz'}
             </div>
           </div>
 
@@ -123,7 +144,7 @@ export default function AutotunePanel() {
               <div
                 className="cents-indicator"
                 style={{
-                  left: `${50 + (enabled ? centsOff : 0) * 0.5}%`,
+                  left: `${50 + (config.enabled ? centsOff : 0) * 0.5}%`,
                   background: Math.abs(centsOff) < 10 ? 'var(--accent-success)' : 'var(--accent-warning)',
                 }}
               />
@@ -138,7 +159,7 @@ export default function AutotunePanel() {
           {/* Target note */}
           <div className="pitch-target">
             <span className="text-muted" style={{ fontSize: 'var(--text-xs)' }}>TARGET</span>
-            <span className="pitch-target-note mono">{enabled ? targetNote : '--'}</span>
+            <span className="pitch-target-note mono">{config.enabled ? targetNote : '--'}</span>
           </div>
 
           {/* Confidence bar */}
@@ -147,7 +168,7 @@ export default function AutotunePanel() {
             <div className="confidence-bar">
               <div
                 className="confidence-fill"
-                style={{ width: `${(enabled ? confidence : 0) * 100}%` }}
+                style={{ width: `${(config.enabled ? confidence : 0) * 100}%` }}
               />
             </div>
           </div>
@@ -157,10 +178,10 @@ export default function AutotunePanel() {
         <div className="autotune-section">
           <div className="autotune-section-label">KEY & SCALE</div>
           <div className="key-scale-row">
-            <select className="select" value={key} onChange={(e) => { setKey(e.target.value); audioEngine.setAutotuneParam('key', e.target.value); }} style={{ width: 70 }}>
+            <select className="select" value={config.key} onChange={(e) => updateParam('key', e.target.value)} style={{ width: 70 }}>
               {KEYS.map(k => <option key={k} value={k}>{k}</option>)}
             </select>
-            <select className="select" value={scale} onChange={(e) => { setScale(e.target.value); audioEngine.setAutotuneParam('scale', e.target.value); }} style={{ flex: 1 }}>
+            <select className="select" value={config.scale} onChange={(e) => updateParam('scale', e.target.value)} style={{ flex: 1 }}>
               {SCALES.map(s => <option key={s} value={s}>{SCALE_LABELS[s] || s}</option>)}
             </select>
           </div>
@@ -170,7 +191,7 @@ export default function AutotunePanel() {
             {KEYS.map((noteName, i) => {
               const isBlack = noteName.includes('#');
               const isActive = activeNotes.includes(i);
-              const isDetected = enabled && detectedNote.startsWith(noteName);
+              const isDetected = config.enabled && detectedNote.startsWith(noteName);
               return (
                 <div
                   key={noteName}
@@ -194,12 +215,9 @@ export default function AutotunePanel() {
                 min="0"
                 max="1"
                 step="0.01"
-                value={speed}
-                onChange={(e) => { 
-                  const v = parseFloat(e.target.value);
-                  setSpeed(v); 
-                  audioEngine.setAutotuneParam('speed', v);
-                }}
+                step="0.01"
+                value={config.speed}
+                onChange={(e) => updateParam('speed', parseFloat(e.target.value))}
                 style={{ width: '100%', accentColor: speedColor }}
               />
             </div>
@@ -220,16 +238,13 @@ export default function AutotunePanel() {
               min="0"
               max="1"
               step="0.01"
-              value={amount}
-              onChange={(e) => {
-                const v = parseFloat(e.target.value);
-                setAmount(v);
-                audioEngine.setAutotuneParam('amount', v);
-              }}
+              step="0.01"
+              value={config.amount}
+              onChange={(e) => updateParam('amount', parseFloat(e.target.value))}
               style={{ flex: 1, accentColor: 'var(--accent-primary)' }}
             />
             <span className="mono" style={{ fontSize: 'var(--text-xs)', minWidth: 36, textAlign: 'right' }}>
-              {Math.round(amount * 100)}%
+              {Math.round(config.amount * 100)}%
             </span>
           </div>
         </div>
@@ -243,12 +258,13 @@ export default function AutotunePanel() {
               min="0"
               max="1"
               step="0.01"
-              value={humanize}
-              onChange={(e) => setHumanize(parseFloat(e.target.value))}
+              step="0.01"
+              value={config.humanize}
+              onChange={(e) => updateParam('humanize', parseFloat(e.target.value))}
               style={{ flex: 1, accentColor: 'var(--accent-secondary)' }}
             />
             <span className="mono" style={{ fontSize: 'var(--text-xs)', minWidth: 36, textAlign: 'right' }}>
-              {Math.round(humanize * 100)}%
+              {Math.round(config.humanize * 100)}%
             </span>
           </div>
         </div>
@@ -262,12 +278,13 @@ export default function AutotunePanel() {
               min="-100"
               max="100"
               step="1"
-              value={retune}
-              onChange={(e) => setRetune(parseFloat(e.target.value))}
+              step="1"
+              value={config.retune}
+              onChange={(e) => updateParam('retune', parseFloat(e.target.value))}
               style={{ flex: 1, accentColor: 'var(--accent-tertiary)' }}
             />
             <span className="mono" style={{ fontSize: 'var(--text-xs)', minWidth: 46, textAlign: 'right' }}>
-              {retune > 0 ? '+' : ''}{retune} ct
+              {config.retune > 0 ? '+' : ''}{config.retune} ct
             </span>
           </div>
         </div>
@@ -278,8 +295,8 @@ export default function AutotunePanel() {
             <label className="autotune-toggle">
               <input
                 type="checkbox"
-                checked={formantPreserve}
-                onChange={(e) => setFormantPreserve(e.target.checked)}
+                checked={config.formant}
+                onChange={(e) => updateParam('formant', e.target.checked)}
               />
               <span>Formant Preservation</span>
             </label>

@@ -361,6 +361,26 @@ function ExportContent({ closeModal, projectName }) {
   const [progress, setProgress] = useState(0);
   const [exportDone, setExportDone] = useState(false);
 
+  // Auto-calculate project duration
+  useEffect(() => {
+    const tracks = useProjectStore.getState().tracks;
+    const bpm = useProjectStore.getState().bpm;
+    let maxBeat = 0;
+    
+    tracks.forEach(t => {
+        t.clips.forEach(c => {
+            const end = c.startBeat + c.lengthBeats;
+            if (end > maxBeat) maxBeat = end;
+        });
+    });
+    
+    // Add 1 bar buffer
+    maxBeat += 4;
+    
+    const durationSec = Math.ceil((maxBeat / bpm) * 60);
+    if (durationSec > 0) setDuration(durationSec);
+  }, []);
+
   const applyPreset = (presetKey) => {
     setPreset(presetKey);
     const p = QUALITY_PRESETS[presetKey];
@@ -436,18 +456,41 @@ function ExportContent({ closeModal, projectName }) {
           </select>
         </SettingsRow>
 
-        {/* Duration */}
-        <SettingsRow label="Duration (seconds)">
-          <input
-            type="number"
-            className="input input-sm"
-            value={duration}
-            min={1}
-            max={600}
-            onChange={(e) => setDuration(Number(e.target.value))}
-            style={{ width: 80 }}
-          />
+        {/* Duration (Min:Sec) */}
+        <SettingsRow label="Duration">
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+            <input
+              type="number"
+              className="input input-sm"
+              value={Math.floor(duration / 60)}
+              min={0}
+              onChange={(e) => {
+                const mins = Number(e.target.value);
+                const secs = duration % 60;
+                setDuration(mins * 60 + secs);
+              }}
+              style={{ width: 50, textAlign: 'right' }}
+            />
+            <span className="text-muted">:</span>
+            <input
+              type="number"
+              className="input input-sm"
+              value={duration % 60}
+              min={0}
+              max={59}
+              onChange={(e) => {
+                const secs = Number(e.target.value);
+                const mins = Math.floor(duration / 60);
+                setDuration(mins * 60 + secs);
+              }}
+              style={{ width: 50 }}
+            />
+            <span className="text-muted" style={{ fontSize: 'var(--text-xs)', marginLeft: 4 }}>
+               ({duration}s)
+            </span>
+          </div>
         </SettingsRow>
+
 
         {/* Channels */}
         <SettingsRow label="Channels">

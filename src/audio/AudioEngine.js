@@ -223,7 +223,86 @@ export class AudioEngine {
                     trackGain.connect(this.masterGain);
                 }
 
-                const destination = panNode || trackGain;
+                // Track Effects Chain
+                let inputNode = null; // Will be the entry point for sources
+                let lastNode = null;
+
+                // Create Effect Nodes
+                if (track.effects && track.effects.length > 0) {
+                    track.effects.forEach(effect => {
+                        if (effect.type === 'eq' && effect.active) {
+                            // Simple 3-band EQ
+                            const low = this.context.createBiquadFilter();
+                            low.type = 'lowshelf';
+                            low.frequency.value = effect.params.lowFreq || 100;
+                            low.gain.value = effect.params.low || 0;
+
+                            const mid = this.context.createBiquadFilter();
+                            mid.type = 'peaking';
+                            mid.frequency.value = effect.params.midFreq || 1000;
+                            mid.gain.value = effect.params.mid || 0;
+
+                            const high = this.context.createBiquadFilter();
+                            high.type = 'highshelf';
+                            high.frequency.value = effect.params.highFreq || 10000;
+                            high.gain.value = effect.params.high || 0;
+
+                            // Connect: low -> mid -> high
+                            low.connect(mid);
+                            mid.connect(high);
+
+                            if (!inputNode) inputNode = low;
+                            if (lastNode) lastNode.connect(low);
+                            lastNode = high;
+                        }
+                    });
+                }
+
+                // If effects exist, connect chain to trackGain
+                if (lastNode) {
+                    lastNode.connect(destination);
+                    // destination is Pan or Master
+                    // Wait, sources connect to trackGain, trackGain connects to Panner, Panner connects to Master.
+                    // Correct chain: Source -> [Effects] -> TrackGain -> Panner -> Master
+                    // But trackGain controls volume. Panner controls pan.
+                    // Let's do: Source -> [Effects] -> TrackGain -> Panner -> Master
+                }
+
+                // Actually, let's simplify: 
+                // Sources connect to 'entryNode'.
+                // entryNode -> Effects -> TrackGain
+
+                let entryNode = this.context.createGain();
+
+                let current = entryNode;
+                if (track.effects && track.effects.length > 0) {
+                    track.effects.forEach(effect => {
+                        if (effect.type === 'eq' && effect.active) {
+                            const low = this.context.createBiquadFilter();
+                            low.type = 'lowshelf';
+                            low.frequency.value = effect.params.lowFreq || 100;
+                            low.gain.value = effect.params.low || 0;
+
+                            const mid = this.context.createBiquadFilter();
+                            mid.type = 'peaking';
+                            mid.frequency.value = effect.params.midFreq || 1000;
+                            mid.gain.value = effect.params.mid || 0;
+
+                            const high = this.context.createBiquadFilter();
+                            high.type = 'highshelf';
+                            high.frequency.value = effect.params.highFreq || 10000;
+                            high.gain.value = effect.params.high || 0;
+
+                            current.connect(low);
+                            low.connect(mid);
+                            mid.connect(high);
+                            current = high;
+                        }
+                    });
+                }
+
+                // Connect end of effects to trackGain
+                current.connect(trackGain);
 
                 for (const clip of track.clips) {
                     const clipStartTime = this.beatToTime(clip.startBeat);
@@ -241,7 +320,8 @@ export class AudioEngine {
                         const clipGain = this.context.createGain();
                         clipGain.gain.value = clip.gain || 1;
                         source.connect(clipGain);
-                        clipGain.connect(trackGain);
+                        // Connect to entry of track chain (Effects -> TrackGain)
+                        clipGain.connect(entryNode);
 
                         const audioOffset = Math.max(0, offset - clipStartTime) + (clip.offset || 0);
                         const when = now + Math.max(0, clipStartTime - offset);
@@ -251,8 +331,13 @@ export class AudioEngine {
                         );
 
                         if (duration > 0) {
+                            // Apply Autotune (Simple Detune for now)
+                            if (track.autotune && track.autotune.enabled) {
+                                source.detune.value = track.autotune.retune || 0;
+                            }
+
                             source.start(when, audioOffset, duration);
-                            this.scheduledSources.push(source);
+                            this.scheduledSources.push({ source, trackId: track.id });
                         }
                     } else if (clip.type === 'audio' && !clip.bufferId) {
                         // Demo audio clips without real buffers — generate noise burst
@@ -272,10 +357,10 @@ export class AudioEngine {
                             const cGain = this.context.createGain();
                             cGain.gain.value = (clip.gain || 1) * 0.3;
                             src.connect(cGain);
-                            cGain.connect(trackGain);
+                            cGain.connect(entryNode);
                             const audioOff = Math.max(0, offset - clipStartTime);
                             src.start(when, audioOff);
-                            this.scheduledSources.push(src);
+                            this.scheduledSources.push({ source: src, trackId: track.id });
                         }
                     } else if (clip.type === 'midi' && clip.notes) {
                         // Play MIDI notes as simple tones
@@ -301,7 +386,7 @@ export class AudioEngine {
                                 noteGain.gain.setValueAtTime(vel * 0.25, when + dur - 0.01);
                                 noteGain.gain.linearRampToValueAtTime(0.001, when + dur);
                                 osc.connect(noteGain);
-                                noteGain.connect(trackGain);
+                                noteGain.connect(entryNode);
                                 osc.start(when);
                                 osc.stop(when + dur);
                                 this.scheduledSources.push(osc);
@@ -316,8 +401,11 @@ export class AudioEngine {
     }
 
     _stopAllSources() {
-        for (const source of this.scheduledSources) {
-            try { source.stop(); } catch (e) { /* already stopped */ }
+        for (const item of this.scheduledSources) {
+            try {
+                if (item.source) item.source.stop();
+                else item.stop(); // Fallback if it was just a node
+            } catch (e) { /* already stopped */ }
         }
         this.scheduledSources = [];
     }
@@ -558,11 +646,19 @@ export class AudioEngine {
         return this.pitchDetector;
     }
 
-    setAutotuneParam(param, value) {
-        // Real-time pitch correction requires AudioWorklet which is complex
-        // For this release, we'll just track the params for future use
-        // or apply simple playbackRate tweaks if we were playing a single sample
-        // console.log('Autotune param:', param, value);
+    setAutotuneParam(trackId, param, value) {
+        // Update currently playing sources for this track
+        const now = this.context.currentTime;
+
+        if (param === 'retune') {
+            for (const item of this.scheduledSources) {
+                if (item.trackId === trackId && item.source && item.source.detune) {
+                    item.source.detune.setTargetAtTime(value, now, 0.1);
+                }
+            }
+        }
+        // logical params like 'scale', 'key' are used during pitch detection/correction algorithm
+        // which would be in a AudioWorklet. For now, we only support retune (detune) in real-time.
     }
 
     dispose() {

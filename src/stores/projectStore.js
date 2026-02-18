@@ -19,6 +19,16 @@ const createDefaultTrack = (index, type = 'audio', name) => ({
     clips: [],
     effects: [],
     automationLanes: [],
+    autotune: {
+        enabled: false,
+        key: 'C',
+        scale: 'chromatic',
+        speed: 0.5, // 0-1
+        amount: 1.0, // 0-1
+        humanize: 0.1, // 0-1
+        retune: 0, // cents
+        formant: true
+    },
     height: 80,
     visible: true,
 });
@@ -271,6 +281,10 @@ export const useProjectStore = create((set, get) => ({
 
     setTrackColor: (trackId, color) => set((state) => ({
         tracks: state.tracks.map(t => t.id === trackId ? { ...t, color } : t)
+    })),
+
+    setTrackAutotune: (trackId, params) => set((state) => ({
+        tracks: state.tracks.map(t => t.id === trackId ? { ...t, autotune: { ...t.autotune, ...params } } : t)
     })),
 
     quantizeSelection: (grid = 0.25) => {

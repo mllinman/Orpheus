@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { processAudio } from '../utils/ffmpeg.js';
+import { processAudioAi, checkAiAvailability } from '../utils/ai-audio.js';
 
 const router = express.Router();
 const __filename = fileURLToPath(import.meta.url);
@@ -36,10 +37,21 @@ router.post('/separate', upload.single('audio'), async (req, res) => {
         const jobId = Date.now().toString();
         const jobDir = path.join(stemsDir, jobId);
 
-        // Process Audio
-        // Note: In a real app, this should be a background job (Queue)
-        // But for this MVP, we await it (might timeout on large files)
-        const results = await processAudio(req.file.path, jobDir);
+        // Check availability of AI engine
+        const hasAi = await checkAiAvailability();
+        console.log('AI Engine Available:', hasAi);
+
+        let results;
+        if (hasAi) {
+            try {
+                results = await processAudioAi(req.file.path, jobDir);
+            } catch (err) {
+                console.error('AI Processing Failed, falling back to FFmpeg:', err);
+                results = await processAudio(req.file.path, jobDir);
+            }
+        } else {
+            results = await processAudio(req.file.path, jobDir);
+        }
 
         // Construct URLs
         // Assumes /uploads is served statically

@@ -90,16 +90,47 @@ export default function TimelineRuler({ totalBeats, pixelsPerBeat }) {
 
   }, [totalBeats, pixelsPerBeat, isLooping, loopStart, loopEnd]);
 
-  const handleClick = (e) => {
+  }, [totalBeats, pixelsPerBeat, isLooping, loopStart, loopEnd]);
+
+  // Handle Scrubbing
+  useEffect(() => {
+    const onMove = (e) => {
+      if (!isDragging.current) return;
+      handleScrub(e);
+    };
+    const onUp = () => {
+      if (isDragging.current) {
+        isDragging.current = false;
+        document.body.style.cursor = 'default';
+      }
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [pixelsPerBeat]);
+
+  const isDragging = useRef(false);
+
+  const handleScrub = (e) => {
+    if (!canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left + (canvasRef.current.parentElement.scrollLeft || 0);
-    const beat = x / pixelsPerBeat;
+    const beat = Math.max(0, x / pixelsPerBeat);
     const time = (beat / useProjectStore.getState().bpm) * 60;
     setPlayheadPosition(time);
   };
 
+  const handleMouseDown = (e) => {
+    isDragging.current = true;
+    document.body.style.cursor = 'ew-resize';
+    handleScrub(e);
+  };
+
   return (
-    <div className="timeline-ruler" onClick={handleClick}>
+    <div className="timeline-ruler" onMouseDown={handleMouseDown}>
       <canvas ref={canvasRef} className="timeline-canvas" />
     </div>
   );

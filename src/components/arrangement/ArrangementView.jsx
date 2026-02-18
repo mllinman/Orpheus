@@ -12,6 +12,8 @@ export default function ArrangementView() {
   const { horizontalZoom, verticalZoom, trackHeaderWidth } = useUIStore();
   const scrollRef = useRef(null);
   const headerScrollRef = useRef(null);
+  const setPlayheadPosition = useProjectStore(s => s.setPlayheadPosition);
+  const bpm = useProjectStore(s => s.bpm);
 
   const trackHeight = 80 * verticalZoom;
   const totalBars = 64;
@@ -64,6 +66,23 @@ export default function ArrangementView() {
     }
   }, []);
 
+  // Handle click on background to move playhead
+  const handleBackgroundClick = (e) => {
+    // Ignore if clicking a child element (like a clip)
+    if (e.target.closest('.audio-clip') || e.target.closest('.automation-point')) return;
+    
+    const rect = e.currentTarget.getBoundingClientRect();
+    const scrollLeft = e.currentTarget.scrollLeft;
+    const x = e.clientX - rect.left + scrollLeft;
+    
+    // Calculate time
+    // x is pixels. pixelsPerBeat = horizontalZoom
+    const beat = x / horizontalZoom;
+    const time = (beat / bpm) * 60;
+    
+    setPlayheadPosition(time);
+  };
+
   return (
     <div 
       className="arrangement-view" 
@@ -98,6 +117,7 @@ export default function ArrangementView() {
           className="arrangement-lanes-scroll"
           ref={scrollRef}
           onScroll={handleScroll}
+          onClick={handleBackgroundClick}
         >
           <div className="arrangement-lanes" style={{ width: totalWidth, minWidth: '100%' }}>
             {tracks.map((track, i) => (
