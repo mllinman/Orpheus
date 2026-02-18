@@ -223,6 +223,23 @@ class AudioExporter {
         URL.revokeObjectURL(url);
     }
 
+    /**
+     * Encode an AudioBuffer directly to a WAV Blob
+     * @param {AudioBuffer} audioBuffer
+     * @returns {Blob}
+     */
+    encodeBufferToBlob(audioBuffer) {
+        const channels = audioBuffer.numberOfChannels;
+        const sampleRate = audioBuffer.sampleRate;
+        const channelData = [];
+        for (let i = 0; i < channels; i++) {
+            channelData.push(audioBuffer.getChannelData(i));
+        }
+        // Encode as 16-bit WAV for compatibility
+        const wavBuffer = this._encodeWAV(channelData, sampleRate, 16, channels);
+        return new Blob([wavBuffer], { type: 'audio/wav' });
+    }
+
     async _getProjectState() {
         // Import dynamically to avoid circular deps
         const { useProjectStore } = await import('../stores/projectStore');

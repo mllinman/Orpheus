@@ -7,9 +7,11 @@ const MENUS = {
   File: [
     { label: 'New Project', shortcut: 'Ctrl+N', action: 'newProject' },
     { label: 'Open Project...', shortcut: 'Ctrl+O', action: 'openProject' },
+    { label: 'Open from Cloud...', action: 'openCloud' },
     { divider: true },
-    { label: 'Save', shortcut: 'Ctrl+S', action: 'save' },
-    { label: 'Save As...', shortcut: 'Ctrl+Shift+S', action: 'saveAs' },
+    { label: 'Save (Local)', shortcut: 'Ctrl+S', action: 'save' },
+    { label: 'Save to Cloud...', action: 'saveCloud' },
+    { label: 'Save As (Download)...', shortcut: 'Ctrl+Shift+S', action: 'saveAs' },
     { divider: true },
     { label: 'Export Audio...', shortcut: 'Ctrl+Shift+E', action: 'export' },
     { label: 'Export Project File...', action: 'exportProject' },
@@ -140,6 +142,14 @@ export default function TopMenuBar() {
       case 'saveAs':
         // Download the project as a .orpheus file
         proj.exportProject();
+        break;
+
+      case 'openCloud':
+        setActiveModal('cloud');
+        break;
+
+      case 'saveCloud':
+        setActiveModal('cloudSave');
         break;
 
       case 'export':

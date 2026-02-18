@@ -35,6 +35,18 @@ class AudioBufferManager {
         return this._processBuffer(arrayBuffer, fileName, arrayBuffer.byteLength, path);
     }
 
+    /**
+     * Load audio from a URL (e.g. backend processed stem)
+     * @param {string} url 
+     */
+    async loadFromUrl(url) {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('Failed to fetch audio from URL');
+        const arrayBuffer = await res.arrayBuffer();
+        const fileName = url.split('/').pop().split('?')[0] || `download-${Date.now()}.mp3`;
+        return this._processBuffer(arrayBuffer, fileName, arrayBuffer.byteLength, url);
+    }
+
     async _processBuffer(arrayBuffer, fileName, fileSize, path = null) {
         await audioEngine.init();
         const audioBuffer = await audioEngine.context.decodeAudioData(arrayBuffer);

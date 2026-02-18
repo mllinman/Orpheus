@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { useProjectStore } from '../../stores/projectStore';
 import { useUIStore } from '../../stores/uiStore';
+import { audioExporter } from '../../audio/AudioExporter';
+import { audioBufferManager } from '../../audio/AudioBufferManager';
 
 const STEM_TYPES = [
   { id: 'vocals', label: 'Vocals', icon: '🎤', color: '#e91e8a', desc: 'High-pass filtered for vocal isolation' },
@@ -10,22 +12,68 @@ const STEM_TYPES = [
 ];
 
 export default function StemSeparationPanel() {
-  const { processStems } = useProjectStore();
+  const { processStems, addStemTracks, tracks } = useProjectStore();
   const { selectedClipId, selectedClipTrackId } = useUIStore();
   const [isProcessing, setIsProcessing] = useState(false);
+  const [useCloud, setUseCloud] = useState(true);
   const [successMsg, setSuccessMsg] = useState('');
 
   const handleProcess = async () => {
-    if (!selectedClipId) return;
+    if (!selectedClipId || !selectedClipTrackId) return;
     setIsProcessing(true);
     
-    // Simulate slight delay for "processing" feel, though logic is instant
-    await new Promise(r => setTimeout(r, 800));
-    
-    processStems();
+    try {
+      if (useCloud) {
+        // ─── Cloud Processing ───
+        const track = tracks.find(t => t.id === selectedClipTrackId);
+        const clip = track?.clips.find(c => c.id === selectedClipId);
+        
+        if (!clip || !clip.bufferId) throw new Error('No audio clip selected');
+        
+        const bufferEntry = audioBufferManager.getBuffer(clip.bufferId);
+        if (!bufferEntry) throw new Error('Audio buffer not found');
+
+        // 1. Encode to WAV
+        const blob = audioExporter.encodeBufferToBlob(bufferEntry.buffer);
+
+        // 2. Upload
+        const formData = new FormData();
+        formData.append('audio', blob, 'source.wav');
+
+        const res = await fetch('/api/audio/separate', {
+          method: 'POST',
+          body: formData
+        });
+        
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || 'Processing failed');
+
+        // 3. Load results
+        const resultStems = {};
+        for (const [type, url] of Object.entries(data.stems)) {
+            // Load buffer from URL
+            const bufId = await audioBufferManager.loadFromUrl(url);
+            // Map stems to friendly names
+            const label = STEM_TYPES.find(s => s.id === type)?.label || type;
+            resultStems[label] = bufId;
+        }
+
+        // 4. Update Project
+        addStemTracks(selectedClipTrackId, selectedClipId, resultStems);
+        setSuccessMsg('Cloud processing complete!');
+
+      } else {
+        // ─── Local Processing ───
+        await new Promise(r => setTimeout(r, 800));
+        processStems();
+        setSuccessMsg('Created 4 stem tracks (EQ Preview)!');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error: ' + err.message);
+    }
     
     setIsProcessing(false);
-    setSuccessMsg('Created 4 stem tracks in arrangement!');
     setTimeout(() => setSuccessMsg(''), 3000);
   };
 
@@ -60,6 +108,24 @@ export default function StemSeparationPanel() {
             </div>
           ))}
         </div>
+
+        {/* Cloud Toggle */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20, background: 'var(--bg-surface)', padding: 10, borderRadius: 6 }}>
+           <input 
+             type="checkbox" 
+             checked={useCloud} 
+             onChange={(e) => setUseCloud(e.target.checked)}
+             style={{ width: 16, height: 16, cursor: 'pointer' }}
+           />
+           <div style={{ flex: 1 }}>
+             <div style={{ fontWeight: 500, fontSize: 'var(--text-sm)' }}>Use Cloud Processing (High Quality)</div>
+             <div className="text-muted" style={{ fontSize: 'var(--text-xs)' }}>
+               {useCloud ? 'Uploads to server for processing (Better quality, slower)' : 'Uses local EQ filters (Instant preview, lower quality)'}
+             </div>
+           </div>
+        </div>
+
+
 
         <div className="stem-action-area" style={{ textAlign: 'center' }}>
           {!isValidSelection ? (

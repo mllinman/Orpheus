@@ -3,6 +3,7 @@ import { useUIStore } from '../../stores/uiStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { audioExporter } from '../../audio/AudioExporter';
 import { pluginManager } from '../../audio/PluginManager';
+import CloudProjectsModal from '../modals/CloudProjectsModal';
 
 const SHORTCUT_GROUPS = [
   { title: 'Transport', items: [
@@ -50,6 +51,12 @@ export default function Modal() {
         {activeModal === 'settings' && <SettingsContent closeModal={closeModal} />}
         {activeModal === 'export' && <ExportContent closeModal={closeModal} projectName={projectName} />}
         {activeModal === 'shortcuts' && <ShortcutsContent closeModal={closeModal} />}
+        {(activeModal === 'cloud' || activeModal === 'cloudSave') && (
+            <CloudProjectsModal 
+                closeModal={closeModal} 
+                mode={activeModal === 'cloudSave' ? 'save' : 'load'} 
+            />
+        )}
       </div>
     </div>
   );

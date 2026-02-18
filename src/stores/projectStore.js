@@ -374,6 +374,46 @@ export const useProjectStore = create((set, get) => ({
         newTracks.splice(baseTrackIndex + 1, 0, vocalTrack, drumTrack, bassTrack, otherTrack);
 
         set({ tracks: newTracks });
+        set({ tracks: newTracks });
+    },
+
+    addStemTracks: (baseTrackId, originalClipId, stems) => {
+        const state = get();
+        const baseTrackIndex = state.tracks.findIndex(t => t.id === baseTrackId);
+        if (baseTrackIndex === -1) return;
+
+        const track = state.tracks[baseTrackIndex];
+        const clip = track.clips.find(c => c.id === originalClipId);
+        if (!clip) return;
+
+        state._pushUndo(); // Save state
+
+        const newTracks = Object.entries(stems).map(([label, bufferId], i) => {
+            const newTrackId = uid();
+            return {
+                id: newTrackId,
+                name: label,
+                type: 'audio',
+                volume: 0.8,
+                pan: 0,
+                color: getTrackColor(state.tracks.length + i),
+                mute: false,
+                solo: false,
+                clips: [{
+                    ...clip,
+                    id: uid(),
+                    trackId: newTrackId,
+                    bufferId,
+                    name: label
+                    // We keep original startBeat/length to match sync
+                }],
+                effects: []
+            };
+        });
+
+        const updatedTracks = [...state.tracks];
+        updatedTracks.splice(baseTrackIndex + 1, 0, ...newTracks);
+        set({ tracks: updatedTracks });
     },
 
     addClip: (trackId, clip) => set((state) => ({
@@ -553,5 +593,82 @@ export const useProjectStore = create((set, get) => ({
             reader.onerror = () => reject(new Error('Failed to read file'));
             reader.readAsText(file);
         });
+    },
+
+    // ─── Cloud Storage ───
+    isSaving: false,
+    isLoading: false,
+    cloudProjects: [],
+
+    saveToCloud: async () => {
+        const state = get();
+        set({ isSaving: true });
+        try {
+            const data = {
+                name: state.projectName,
+                data: {
+                    tracks: state.tracks,
+                    bpm: state.bpm,
+                    timeSignature: state.timeSignature,
+                    loopStart: state.loopStart,
+                    loopEnd: state.loopEnd
+                }
+            };
+
+            const res = await fetch('/api/projects', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+
+            if (!res.ok) throw new Error('Failed to save');
+            const saved = await res.json();
+            // Refresh list
+            get().fetchProjects();
+            return true;
+        } catch (err) {
+            console.error(err);
+            return false;
+        } finally {
+            set({ isSaving: false });
+        }
+    },
+
+    fetchProjects: async () => {
+        try {
+            const res = await fetch('/api/projects');
+            if (res.ok) {
+                const projects = await res.json();
+                set({ cloudProjects: projects });
+            }
+        } catch (err) {
+            console.error(err);
+        }
+    },
+
+    loadFromCloud: async (id) => {
+        set({ isLoading: true });
+        try {
+            const res = await fetch(`/api/projects/${id}`);
+            if (!res.ok) throw new Error('Failed to load');
+            const project = await res.json();
+            const data = project.data;
+
+            set({
+                projectName: project.name,
+                tracks: data.tracks,
+                bpm: data.bpm,
+                timeSignature: data.timeSignature,
+                loopStart: data.loopStart,
+                loopEnd: data.loopEnd,
+                undoStack: [],
+                redoStack: [],
+                isPlaying: false
+            });
+        } catch (err) {
+            console.error(err);
+        } finally {
+            set({ isLoading: false });
+        }
     },
 }));
