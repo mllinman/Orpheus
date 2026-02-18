@@ -1,30 +1,35 @@
 import React, { useState } from 'react';
 import { useProjectStore } from '../../stores/projectStore';
 import { useUIStore } from '../../stores/uiStore';
-import { audioExporter } from '../../audio/AudioExporter';
 import { audioBufferManager } from '../../audio/AudioBufferManager';
+import { AIStemSeparator } from '../../audio/AIStemSeparator';
 
 const STEM_TYPES = [
-  { id: 'vocals', label: 'Vocals', icon: '🎤', color: '#e91e8a', desc: 'High-pass filtered for vocal isolation' },
-  { id: 'drums',  label: 'Drums',  icon: '🥁', color: '#ff7043', desc: 'Low-shelf boost & high-cut for punch' },
-  { id: 'bass',   label: 'Bass',   icon: '🎸', color: '#29b6f6', desc: 'Low-pass filtered for bottom end' },
-  { id: 'other',  label: 'Other',  icon: '🎹', color: '#66bb6a', desc: 'Mid-band focused for instruments' },
+  { id: 'vocals', label: 'Vocals', icon: '🎤', color: '#e91e8a', desc: 'AI-isolated Vocals' },
+  { id: 'drums',  label: 'Drums',  icon: '🥁', color: '#ff7043', desc: 'AI-isolated Drums' },
+  { id: 'bass',   label: 'Bass',   icon: '🎸', color: '#29b6f6', desc: 'AI-isolated Bass' },
+  { id: 'other',  label: 'Other',  icon: '🎹', color: '#66bb6a', desc: 'AI-isolated Accompaniment' },
 ];
 
 export default function StemSeparationPanel() {
   const { processStems, addStemTracks, tracks } = useProjectStore();
   const { selectedClipId, selectedClipTrackId } = useUIStore();
   const [isProcessing, setIsProcessing] = useState(false);
-  const [useCloud, setUseCloud] = useState(true);
+  const [useAI, setUseAI] = useState(true);
+  const [progress, setProgress] = useState(0);
+  const [status, setStatus] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
   const handleProcess = async () => {
     if (!selectedClipId || !selectedClipTrackId) return;
     setIsProcessing(true);
+    setProgress(0);
+    setSuccessMsg('');
+    setStatus('Initializing...');
     
     try {
-      if (useCloud) {
-        // ─── Cloud Processing ───
+      if (useAI) {
+        // ─── AI Processing (Client Side) ───
         const track = tracks.find(t => t.id === selectedClipTrackId);
         const clip = track?.clips.find(c => c.id === selectedClipId);
         
@@ -33,48 +38,46 @@ export default function StemSeparationPanel() {
         const bufferEntry = audioBufferManager.getBuffer(clip.bufferId);
         if (!bufferEntry) throw new Error('Audio buffer not found');
 
-        // 1. Encode to WAV
-        const blob = audioExporter.encodeBufferToBlob(bufferEntry.buffer);
-
-        // 2. Upload
-        const formData = new FormData();
-        formData.append('audio', blob, 'source.wav');
-
-        const res = await fetch('/api/audio/separate', {
-          method: 'POST',
-          body: formData
-        });
+        setStatus('Loading AI Model (this may take a moment)...');
         
-        const data = await res.json();
-        if (!data.success) throw new Error(data.error || 'Processing failed');
+        // Run Separation
+        const stemsObj = await AIStemSeparator.separate(bufferEntry.buffer, {
+            onProgress: (p) => {
+                setProgress(p);
+                if (p < 0.2) setStatus('Loading Model...');
+                else if (p < 0.9) setStatus('Separating Stems...');
+                else setStatus('Finalizing...');
+            }
+        });
 
-        // 3. Load results
-        const resultStems = {};
-        for (const [type, url] of Object.entries(data.stems)) {
-            // Load buffer from URL
-            const bufId = await audioBufferManager.loadFromUrl(url);
-            // Map stems to friendly names
-            const label = STEM_TYPES.find(s => s.id === type)?.label || type;
-            resultStems[label] = bufId;
+        setStatus('Creating Tracks...');
+        
+        // Save buffers
+        const resultIds = {};
+        for (const [label, buffer] of Object.entries(stemsObj)) {
+            const bufId = await audioBufferManager.addBuffer(buffer);
+            // Map raw label to our types if needed, usually 'vocals', 'drums', 'bass', 'other' matches
+            resultIds[label] = bufId;
         }
 
-        // 4. Update Project
-        addStemTracks(selectedClipTrackId, selectedClipId, resultStems);
-        setSuccessMsg('Cloud processing complete!');
+        addStemTracks(selectedClipTrackId, selectedClipId, resultIds);
+        setSuccessMsg('AI Separation Complete!');
 
       } else {
-        // ─── Local Processing ───
-        await new Promise(r => setTimeout(r, 800));
+        // ─── Local EQ Processing ───
+        setStatus('Applying EQ Filters...');
+        await new Promise(r => setTimeout(r, 500));
         processStems();
-        setSuccessMsg('Created 4 stem tracks (EQ Preview)!');
+        setSuccessMsg('Created 4 EQ-isolated tracks (Preview only)');
       }
     } catch (err) {
       console.error(err);
-      alert('Error: ' + err.message);
+      setStatus('Error');
+      alert('Separation Failed: ' + err.message + '\n\nEnsure you have an active internet connection for the first run to download the model.');
     }
     
     setIsProcessing(false);
-    setTimeout(() => setSuccessMsg(''), 3000);
+    setProgress(0);
   };
 
   const isValidSelection = !!selectedClipId && !!selectedClipTrackId;
@@ -90,8 +93,8 @@ export default function StemSeparationPanel() {
 
       <div className="stem-content" style={{ padding: 20 }}>
         <p className="text-muted" style={{ marginBottom: 20 }}>
-          Split the selected audio clip into four separate stems using frequency-based separation.
-          This will create 4 new tracks in your arrangement.
+          Split the selected audio clip into four stems (Vocals, Drums, Bass, Other).
+          AI separation runs entirely in your browser.
         </p>
 
         <div className="stem-types-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
@@ -109,23 +112,33 @@ export default function StemSeparationPanel() {
           ))}
         </div>
 
-        {/* Cloud Toggle */}
+        {/* AI Toggle */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20, background: 'var(--bg-surface)', padding: 10, borderRadius: 6 }}>
            <input 
              type="checkbox" 
-             checked={useCloud} 
-             onChange={(e) => setUseCloud(e.target.checked)}
+             checked={useAI} 
+             onChange={(e) => setUseAI(e.target.checked)}
              style={{ width: 16, height: 16, cursor: 'pointer' }}
            />
            <div style={{ flex: 1 }}>
-             <div style={{ fontWeight: 500, fontSize: 'var(--text-sm)' }}>Use Cloud Processing (High Quality)</div>
+             <div style={{ fontWeight: 500, fontSize: 'var(--text-sm)' }}>High Quality AI Separation</div>
              <div className="text-muted" style={{ fontSize: 'var(--text-xs)' }}>
-               {useCloud ? 'Uploads to server for processing (Better quality, slower)' : 'Uses local EQ filters (Instant preview, lower quality)'}
+               {useAI ? 'Uses Demucs AI (Client-side). Slower but high quality.' : 'Uses EQ Isolation. Instant preview but poor separation.'}
              </div>
            </div>
         </div>
 
-
+        {isProcessing && (
+            <div style={{ marginBottom: 15 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5, fontSize: 'var(--text-xs)' }}>
+                    <span>{status}</span>
+                    <span>{Math.round(progress * 100)}%</span>
+                </div>
+                <div style={{ height: 6, background: 'var(--bg-dark)', borderRadius: 3, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', background: 'var(--accent-primary)', width: `${progress * 100}%`, transition: 'width 0.2s' }} />
+                </div>
+            </div>
+        )}
 
         <div className="stem-action-area" style={{ textAlign: 'center' }}>
           {!isValidSelection ? (
@@ -139,7 +152,7 @@ export default function StemSeparationPanel() {
               disabled={isProcessing}
               style={{ width: '100%', padding: '12px', fontSize: 16 }}
             >
-              {isProcessing ? 'Processing Audio...' : '✨ Separate Stems'}
+              {isProcessing ? 'Processing Audio...' : (useAI ? '✨ Process with AI' : 'Separate Stems (EQ)')}
             </button>
           )}
           
@@ -148,6 +161,12 @@ export default function StemSeparationPanel() {
               ✔ {successMsg}
             </div>
           )}
+          
+           {useAI && !isProcessing && (
+              <div style={{ marginTop: 15, fontSize: '10px', opacity: 0.5 }}>
+                  Powered by transformers.js & Demucs
+              </div>
+           )}
         </div>
       </div>
     </div>
