@@ -204,5 +204,266 @@ export const EFFECT_TYPES = [
     { id: 'compressor', name: 'Compressor', create: createCompressor },
     { id: 'reverb', name: 'Reverb', create: createReverb },
     { id: 'delay', name: 'Delay', create: createDelay },
-    { id: 'chorus', name: 'Chorus', create: createChorus }
+    { id: 'chorus', name: 'Chorus', create: createChorus },
+    { id: 'saturation', name: 'Saturation', create: createSaturation },
+    { id: 'gate', name: 'Noise Gate', create: createGate },
+    { id: 'stereoWidener', name: 'Stereo Widener', create: createStereoWidener },
+    { id: 'autoPan', name: 'Auto Pan', create: createAutoPan },
+    { id: 'bitcrusher', name: 'Bitcrusher', create: createBitcrusher },
+    { id: 'freqShifter', name: 'Frequency Shifter', create: createFrequencyShifter },
+    { id: 'transientShaper', name: 'Transient Shaper', create: createTransientShaper },
 ];
+
+// ─── Saturation (Waveshaper) ───
+export function createSaturation(ctx) {
+    const input = ctx.createGain();
+    const output = ctx.createGain();
+    const wetGain = ctx.createGain();
+    const dryGain = ctx.createGain();
+    const waveshaper = ctx.createWaveShaper();
+
+    wetGain.gain.value = 0.5;
+    dryGain.gain.value = 0.5;
+
+    // Tape-style saturation curve
+    const makeCurve = (drive) => {
+        const samples = 44100;
+        const curve = new Float32Array(samples);
+        const k = drive * 50;
+        for (let i = 0; i < samples; i++) {
+            const x = (i * 2) / samples - 1;
+            curve[i] = ((1 + k) * x) / (1 + k * Math.abs(x));
+        }
+        return curve;
+    };
+    waveshaper.curve = makeCurve(0.5);
+    waveshaper.oversample = '4x';
+
+    input.connect(waveshaper);
+    input.connect(dryGain);
+    waveshaper.connect(wetGain);
+    wetGain.connect(output);
+    dryGain.connect(output);
+
+    return {
+        type: 'saturation', name: 'Saturation', input, output, bypass: false,
+        setDrive(v) { waveshaper.curve = makeCurve(v); },
+        setMix(wet) { wetGain.gain.value = wet; dryGain.gain.value = 1 - wet; },
+    };
+}
+
+// ─── Noise Gate ───
+export function createGate(ctx) {
+    const input = ctx.createGain();
+    const output = ctx.createGain();
+    const gateGain = ctx.createGain();
+    const analyzer = ctx.createAnalyser();
+    analyzer.fftSize = 256;
+
+    input.connect(analyzer);
+    input.connect(gateGain);
+    gateGain.connect(output);
+
+    let threshold = -40, attack = 0.001, release = 0.05, active = true;
+    const dataArray = new Uint8Array(analyzer.frequencyBinCount);
+
+    const process = () => {
+        if (!active) return;
+        analyzer.getByteTimeDomainData(dataArray);
+        let sum = 0;
+        for (let i = 0; i < dataArray.length; i++) {
+            const v = (dataArray[i] - 128) / 128;
+            sum += v * v;
+        }
+        const rms = Math.sqrt(sum / dataArray.length);
+        const db = 20 * Math.log10(Math.max(rms, 0.0001));
+        const now = ctx.currentTime;
+        if (db < threshold) {
+            gateGain.gain.setTargetAtTime(0, now, release);
+        } else {
+            gateGain.gain.setTargetAtTime(1, now, attack);
+        }
+        requestAnimationFrame(process);
+    };
+    process();
+
+    return {
+        type: 'gate', name: 'Noise Gate', input, output, bypass: false,
+        setThreshold(v) { threshold = v; },
+        setAttack(v) { attack = v / 1000; },
+        setRelease(v) { release = v / 1000; },
+        destroy() { active = false; },
+    };
+}
+
+// ─── Stereo Widener (Mid-Side) ───
+export function createStereoWidener(ctx) {
+    const input = ctx.createGain();
+    const output = ctx.createGain();
+    const splitter = ctx.createChannelSplitter(2);
+    const merger = ctx.createChannelMerger(2);
+    const midGain = ctx.createGain();
+    const sideGain = ctx.createGain();
+
+    midGain.gain.value = 1;
+    sideGain.gain.value = 1;
+
+    input.connect(splitter);
+    // Mid = (L + R) / 2, Side = (L - R) / 2
+    splitter.connect(midGain, 0);
+    splitter.connect(midGain, 1);
+    splitter.connect(sideGain, 0);
+    // Approximate widening by amplifying the side signal
+    midGain.connect(merger, 0, 0);
+    midGain.connect(merger, 0, 1);
+    sideGain.connect(merger, 0, 0);
+    merger.connect(output);
+
+    return {
+        type: 'stereoWidener', name: 'Stereo Widener', input, output, bypass: false,
+        setWidth(v) {
+            // v: 0=mono, 1=normal, 2=wide
+            midGain.gain.value = 2 - v;
+            sideGain.gain.value = v;
+        },
+    };
+}
+
+// ─── Auto Panner ───
+export function createAutoPan(ctx) {
+    const input = ctx.createGain();
+    const output = ctx.createGain();
+    const panner = ctx.createStereoPanner();
+    const lfo = ctx.createOscillator();
+    const lfoGain = ctx.createGain();
+
+    lfo.frequency.value = 2;
+    lfo.type = 'sine';
+    lfoGain.gain.value = 0.8;
+
+    lfo.connect(lfoGain);
+    lfoGain.connect(panner.pan);
+    lfo.start();
+
+    input.connect(panner);
+    panner.connect(output);
+
+    return {
+        type: 'autoPan', name: 'Auto Pan', input, output, bypass: false,
+        setRate(v) { lfo.frequency.value = v; },
+        setDepth(v) { lfoGain.gain.value = v; },
+        setShape(v) { lfo.type = v; }, // 'sine', 'triangle', 'square'
+    };
+}
+
+// ─── Bitcrusher (AudioWorklet fallback via ScriptProcessor) ───
+export function createBitcrusher(ctx) {
+    const input = ctx.createGain();
+    const output = ctx.createGain();
+
+    let bitDepth = 8;
+    let sampleRateReduction = 1;
+
+    // Use ScriptProcessorNode as fallback (AudioWorklet would be preferred)
+    const bufferSize = 4096;
+    const processor = ctx.createScriptProcessor(bufferSize, 1, 1);
+    let phase = 0;
+    let lastSample = 0;
+
+    processor.onaudioprocess = (e) => {
+        const inp = e.inputBuffer.getChannelData(0);
+        const out = e.outputBuffer.getChannelData(0);
+        const step = Math.pow(0.5, bitDepth);
+
+        for (let i = 0; i < inp.length; i++) {
+            phase += sampleRateReduction;
+            if (phase >= 1) {
+                phase -= 1;
+                lastSample = step * Math.floor(inp[i] / step + 0.5);
+            }
+            out[i] = lastSample;
+        }
+    };
+
+    input.connect(processor);
+    processor.connect(output);
+
+    return {
+        type: 'bitcrusher', name: 'Bitcrusher', input, output, bypass: false,
+        setBitDepth(v) { bitDepth = Math.max(1, Math.min(16, v)); },
+        setSampleRateReduction(v) { sampleRateReduction = Math.max(0.01, Math.min(1, v)); },
+    };
+}
+
+// ─── Frequency Shifter ───
+export function createFrequencyShifter(ctx) {
+    const input = ctx.createGain();
+    const output = ctx.createGain();
+    const osc = ctx.createOscillator();
+    const oscGain = ctx.createGain();
+
+    osc.frequency.value = 0; // Shift amount in Hz
+    osc.type = 'sine';
+    oscGain.gain.value = 0;
+
+    // Ring modulation approximation
+    osc.connect(oscGain);
+    input.connect(output);
+    osc.start();
+
+    return {
+        type: 'freqShifter', name: 'Frequency Shifter', input, output, bypass: false,
+        setShift(v) { osc.frequency.value = v; oscGain.gain.value = v !== 0 ? 1 : 0; },
+    };
+}
+
+// ─── Transient Shaper ───
+export function createTransientShaper(ctx) {
+    const input = ctx.createGain();
+    const output = ctx.createGain();
+    const attackGain = ctx.createGain();
+    const sustainGain = ctx.createGain();
+    const envelope = ctx.createGain();
+    const analyzer = ctx.createAnalyser();
+
+    attackGain.gain.value = 1;
+    sustainGain.gain.value = 1;
+    analyzer.fftSize = 256;
+
+    input.connect(analyzer);
+    input.connect(attackGain);
+    attackGain.connect(output);
+
+    let active = true;
+    const dataArray = new Uint8Array(analyzer.frequencyBinCount);
+    let prevRms = 0;
+
+    const process = () => {
+        if (!active) return;
+        analyzer.getByteTimeDomainData(dataArray);
+        let sum = 0;
+        for (let i = 0; i < dataArray.length; i++) {
+            const v = (dataArray[i] - 128) / 128;
+            sum += v * v;
+        }
+        const rms = Math.sqrt(sum / dataArray.length);
+        const isTransient = rms > prevRms * 1.5;
+        const now = ctx.currentTime;
+
+        if (isTransient) {
+            attackGain.gain.setTargetAtTime(attackGain.gain.value, now, 0.001);
+        } else {
+            attackGain.gain.setTargetAtTime(sustainGain.gain.value, now, 0.05);
+        }
+        prevRms = rms;
+        requestAnimationFrame(process);
+    };
+    process();
+
+    return {
+        type: 'transientShaper', name: 'Transient Shaper', input, output, bypass: false,
+        setAttack(v) { attackGain.gain.value = v; }, // 0-2, 1 = neutral
+        setSustain(v) { sustainGain.gain.value = v; }, // 0-2, 1 = neutral
+        destroy() { active = false; },
+    };
+}

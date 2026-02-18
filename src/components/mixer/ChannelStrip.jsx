@@ -1,165 +1,118 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 import { useProjectStore } from '../../stores/projectStore';
-import { useUIStore } from '../../stores/uiStore';
-import { EFFECT_TYPES } from '../../audio/EffectsProcessor';
-import { audioEngine } from '../../audio/AudioEngine';
 
-export default function ChannelStrip({ track }) {
-  const { toggleMute, toggleSolo, toggleArmed, setTrackVolume, setTrackPan, addTrackEffect, removeTrackEffect } = useProjectStore();
-  const { selectedTrackId, setSelectedTrack } = useUIStore();
-  const isSelected = selectedTrackId === track.id;
-  const [showEffectMenu, setShowEffectMenu] = useState(false);
-  const [level, setLevel] = useState(0);
-  const animRef = useRef(null);
+const DEFAULT_EQ = { lowGain: 0, midGain: 0, highGain: 0, lowFreq: 200, midFreq: 1000, highFreq: 5000 };
+const DEFAULT_COMP = { threshold: -20, ratio: 4, attack: 10, release: 100, makeupGain: 0 };
+const DEFAULT_SAT = { drive: 0, mix: 50 };
+const DEFAULT_GATE = { threshold: -40, attack: 1, release: 50 };
 
-  const dbValue = track.volume > 0 ? (20 * Math.log10(track.volume)).toFixed(1) : '-∞';
-  const panLabel = track.pan > 0.01 ? `R${Math.round(track.pan * 100)}`
-    : track.pan < -0.01 ? `L${Math.round(-track.pan * 100)}`
-    : 'C';
+function KnobParam({ label, value, min, max, step = 1, unit = '', onChange }) {
+  return (
+    <div className="knob-wrapper">
+      <input
+        type="range" min={min} max={max} step={step} value={value}
+        onChange={e => onChange(parseFloat(e.target.value))}
+        style={{ width: 50, accentColor: 'var(--accent-primary)' }}
+      />
+      <span className="knob-label">{label}</span>
+      <span className="knob-label mono">{typeof value === 'number' ? value.toFixed(step < 1 ? 1 : 0) : value}{unit}</span>
+    </div>
+  );
+}
 
-  // Animated VU meter using real analyser or simulated from state
-  useEffect(() => {
-    let smoothed = 0;
-    const animate = () => {
-      if (track.mute) {
-        smoothed = smoothed * 0.85;
-      } else {
-        // Use master analyser data scaled per-track, or simulate based on playing state
-        const isPlaying = useProjectStore.getState().isPlaying;
-        const target = isPlaying
-          ? track.volume * (0.4 + Math.sin(Date.now() * 0.003 + track.id.charCodeAt(0)) * 0.15 + Math.random() * 0.1)
-          : track.volume * 0.05;
-        smoothed = smoothed * 0.85 + target * 0.15;
-      }
-      setLevel(smoothed);
-      animRef.current = requestAnimationFrame(animate);
-    };
-    animRef.current = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(animRef.current);
-  }, [track.mute, track.volume, track.id]);
+export default function ChannelStrip({ trackId }) {
+  const { tracks, updateTrack } = useProjectStore();
+  const track = tracks.find(t => t.id === trackId);
 
-  const segments = 20;
-  const litSegments = Math.floor(level * segments);
+  const [eq, setEq] = useState(track?.channelStrip?.eq || DEFAULT_EQ);
+  const [comp, setComp] = useState(track?.channelStrip?.comp || DEFAULT_COMP);
+  const [sat, setSat] = useState(track?.channelStrip?.sat || DEFAULT_SAT);
+  const [gate, setGate] = useState(track?.channelStrip?.gate || DEFAULT_GATE);
+  const [bypassed, setBypassed] = useState({ eq: false, comp: false, sat: false, gate: false });
 
-  const handleAddEffect = (fx) => {
-    addTrackEffect(track.id, { name: fx.name, type: fx.id, enabled: true, params: {} });
-    setShowEffectMenu(false);
+  const save = (section, data) => {
+    const strip = { ...track?.channelStrip, [section]: data };
+    updateTrack(trackId, { channelStrip: strip });
   };
 
-  const handleRemoveEffect = (e, effectId) => {
-    e.stopPropagation();
-    removeTrackEffect(track.id, effectId);
-  };
+  if (!track) return <div className="channel-strip">No track selected</div>;
 
   return (
-    <div
-      className={`channel-strip ${isSelected ? 'selected' : ''}`}
-      onClick={() => setSelectedTrack(track.id)}
-      style={{ borderTop: `2px solid ${track.color}` }}
-    >
-      <div className="channel-label">
-        <span className="channel-name truncate">{track.name}</span>
+    <div className="channel-strip">
+      <div className="panel-header" style={{ margin: '-8px -8px 0', borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0' }}>
+        <span>🎛 {track.name} — Channel Strip</span>
       </div>
 
-      {/* Insert slots */}
-      <div className="channel-inserts">
-        {track.effects.length > 0 ? (
-          track.effects.map((fx) => (
-            <div key={fx.id} className="insert-slot filled" title="Right-click to remove"
-              onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); handleRemoveEffect(e, fx.id); }}>
-              {fx.name}
-            </div>
-          ))
-        ) : null}
-        <div className="insert-slot empty" onClick={(e) => { e.stopPropagation(); setShowEffectMenu(!showEffectMenu); }}>
-          + Insert
-          {showEffectMenu && (
-            <div className="dropdown-menu" style={{ left: 0, minWidth: 150 }}>
-              {EFFECT_TYPES.map(fx => (
-                <div key={fx.id} className="dropdown-item" onClick={() => handleAddEffect(fx)}>
-                  {fx.name}
-                </div>
-              ))}
-            </div>
-          )}
+      {/* EQ Section */}
+      <div className={`channel-strip-section ${bypassed.eq ? 'bypassed' : ''}`}>
+        <div className="channel-strip-label" style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <span>EQ</span>
+          <button className="btn btn-xs btn-ghost" onClick={() => setBypassed(b => ({ ...b, eq: !b.eq }))}>
+            {bypassed.eq ? 'Off' : 'On'}
+          </button>
+        </div>
+        <div className="channel-strip-knob-row">
+          <KnobParam label="Low" value={eq.lowGain} min={-12} max={12} step={0.5} unit="dB"
+            onChange={v => { setEq(e => ({ ...e, lowGain: v })); save('eq', { ...eq, lowGain: v }); }} />
+          <KnobParam label="Mid" value={eq.midGain} min={-12} max={12} step={0.5} unit="dB"
+            onChange={v => { setEq(e => ({ ...e, midGain: v })); save('eq', { ...eq, midGain: v }); }} />
+          <KnobParam label="High" value={eq.highGain} min={-12} max={12} step={0.5} unit="dB"
+            onChange={v => { setEq(e => ({ ...e, highGain: v })); save('eq', { ...eq, highGain: v }); }} />
         </div>
       </div>
 
-      {/* Pan Knob */}
-      <div className="channel-pan">
-        <div className="pan-label mono">{panLabel}</div>
-        <input
-          type="range"
-          min="-1"
-          max="1"
-          step="0.01"
-          value={track.pan}
-          onChange={(e) => setTrackPan(track.id, parseFloat(e.target.value))}
-          className="pan-slider"
-          onClick={(e) => e.stopPropagation()}
-          onDoubleClick={() => setTrackPan(track.id, 0)}
-        />
-      </div>
-
-      {/* Fader + VU */}
-      <div className="channel-fader-area">
-        <div className="vu-meter">
-          <div className="vu-channel">
-            {Array.from({ length: segments }).map((_, i) => {
-              const idx = segments - 1 - i;
-              const isLit = idx < litSegments;
-              let color = '#00b894';
-              if (idx >= segments * 0.85) color = '#ff6b6b';
-              else if (idx >= segments * 0.7) color = '#fdcb6e';
-              return (
-                <div
-                  key={i}
-                  className="vu-segment"
-                  style={{
-                    background: isLit ? color : 'rgba(255,255,255,0.05)',
-                    boxShadow: isLit ? `0 0 3px ${color}40` : 'none',
-                  }}
-                />
-              );
-            })}
-          </div>
+      {/* Compressor Section */}
+      <div className={`channel-strip-section ${bypassed.comp ? 'bypassed' : ''}`}>
+        <div className="channel-strip-label" style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <span>COMPRESSOR</span>
+          <button className="btn btn-xs btn-ghost" onClick={() => setBypassed(b => ({ ...b, comp: !b.comp }))}>
+            {bypassed.comp ? 'Off' : 'On'}
+          </button>
         </div>
-        <div className="fader-container">
-          <input
-            type="range"
-            className="channel-fader"
-            min="0"
-            max="1"
-            step="0.005"
-            value={track.volume}
-            onChange={(e) => setTrackVolume(track.id, parseFloat(e.target.value))}
-            onClick={(e) => e.stopPropagation()}
-            orient="vertical"
-          />
-          <div className="fader-db mono">{dbValue}</div>
+        <div className="channel-strip-knob-row">
+          <KnobParam label="Thresh" value={comp.threshold} min={-60} max={0} unit="dB"
+            onChange={v => { setComp(c => ({ ...c, threshold: v })); save('comp', { ...comp, threshold: v }); }} />
+          <KnobParam label="Ratio" value={comp.ratio} min={1} max={20}
+            onChange={v => { setComp(c => ({ ...c, ratio: v })); save('comp', { ...comp, ratio: v }); }} />
+          <KnobParam label="Attack" value={comp.attack} min={0.1} max={100} step={0.1} unit="ms"
+            onChange={v => { setComp(c => ({ ...c, attack: v })); save('comp', { ...comp, attack: v }); }} />
+          <KnobParam label="Release" value={comp.release} min={10} max={1000} unit="ms"
+            onChange={v => { setComp(c => ({ ...c, release: v })); save('comp', { ...comp, release: v }); }} />
         </div>
       </div>
 
-      {/* M / S / R */}
-      <div className="channel-buttons">
-        <button
-          className={`track-btn ${track.mute ? 'mute-active' : ''}`}
-          onClick={(e) => { e.stopPropagation(); toggleMute(track.id); }}
-        >
-          M
-        </button>
-        <button
-          className={`track-btn ${track.solo ? 'solo-active' : ''}`}
-          onClick={(e) => { e.stopPropagation(); toggleSolo(track.id); }}
-        >
-          S
-        </button>
-        <button
-          className={`track-btn ${track.armed ? 'arm-active' : ''}`}
-          onClick={(e) => { e.stopPropagation(); toggleArmed(track.id); }}
-        >
-          R
-        </button>
+      {/* Saturation Section */}
+      <div className={`channel-strip-section ${bypassed.sat ? 'bypassed' : ''}`}>
+        <div className="channel-strip-label" style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <span>SATURATION</span>
+          <button className="btn btn-xs btn-ghost" onClick={() => setBypassed(b => ({ ...b, sat: !b.sat }))}>
+            {bypassed.sat ? 'Off' : 'On'}
+          </button>
+        </div>
+        <div className="channel-strip-knob-row">
+          <KnobParam label="Drive" value={sat.drive} min={0} max={100} unit="%"
+            onChange={v => { setSat(s => ({ ...s, drive: v })); save('sat', { ...sat, drive: v }); }} />
+          <KnobParam label="Mix" value={sat.mix} min={0} max={100} unit="%"
+            onChange={v => { setSat(s => ({ ...s, mix: v })); save('sat', { ...sat, mix: v }); }} />
+        </div>
+      </div>
+
+      {/* Gate Section */}
+      <div className={`channel-strip-section ${bypassed.gate ? 'bypassed' : ''}`}>
+        <div className="channel-strip-label" style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <span>GATE</span>
+          <button className="btn btn-xs btn-ghost" onClick={() => setBypassed(b => ({ ...b, gate: !b.gate }))}>
+            {bypassed.gate ? 'Off' : 'On'}
+          </button>
+        </div>
+        <div className="channel-strip-knob-row">
+          <KnobParam label="Thresh" value={gate.threshold} min={-80} max={0} unit="dB"
+            onChange={v => { setGate(g => ({ ...g, threshold: v })); save('gate', { ...gate, threshold: v }); }} />
+          <KnobParam label="Attack" value={gate.attack} min={0.1} max={50} step={0.1} unit="ms"
+            onChange={v => { setGate(g => ({ ...g, attack: v })); save('gate', { ...gate, attack: v }); }} />
+          <KnobParam label="Release" value={gate.release} min={5} max={500} unit="ms"
+            onChange={v => { setGate(g => ({ ...g, release: v })); save('gate', { ...gate, release: v }); }} />
+        </div>
       </div>
     </div>
   );

@@ -623,3 +623,169 @@
         opacity: 1;
     }
 }
+
+/* ── Step Sequencer ── */
+.step-sequencer {
+    background: var(--bg-panel);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+}
+
+.step-seq-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--sp-2) var(--sp-3);
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.step-seq-header h3 {
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.step-seq-controls {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+}
+
+.step-seq-label {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-1);
+    font-size: var(--text-xs);
+    color: var(--text-muted);
+}
+
+.step-seq-range {
+    width: 60px;
+}
+
+.step-seq-grid {
+    display: grid;
+    gap: 1px;
+    padding: var(--sp-1);
+    overflow-x: auto;
+}
+
+.step-seq-row-label {
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
+    padding: 2px 4px;
+    display: flex;
+    align-items: center;
+    white-space: nowrap;
+    font-weight: 500;
+}
+
+.step-seq-col-header {
+    font-size: 9px;
+    color: var(--text-muted);
+    text-align: center;
+    padding: 1px 0;
+}
+
+.step-seq-col-header.bar-start {
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+
+.step-seq-cell {
+    aspect-ratio: 1;
+    min-width: 18px;
+    min-height: 18px;
+    background: var(--bg-dark);
+    border-radius: 2px;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.step-seq-cell:hover {
+    background: var(--bg-hover);
+}
+
+.step-seq-cell.active {
+    background: var(--accent-primary);
+}
+
+.step-seq-cell.bar-start {
+    border-left: 1px solid var(--border-subtle);
+}
+
+/* ── Channel Strip ── */
+.channel-strip {
+    background: var(--bg-panel);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    padding: var(--sp-2);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+    min-width: 200px;
+}
+
+.channel-strip-section {
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    padding: var(--sp-2);
+}
+
+.channel-strip-label {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin-bottom: var(--sp-1);
+}
+
+.channel-strip-knob-row {
+    display: flex;
+    gap: var(--sp-2);
+    align-items: center;
+}
+
+.knob-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+}
+
+.knob-label {
+    font-size: 9px;
+    color: var(--text-muted);
+    text-align: center;
+}
+
+/* ── Spectrum Analyzer ── */
+.spectrum-analyzer {
+    position: relative;
+    background: var(--bg-dark);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+}
+
+.spectrum-analyzer canvas {
+    width: 100%;
+    height: 100%;
+}
+
+.spectrum-labels {
+    position: absolute;
+    bottom: 2px;
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: space-between;
+    padding: 0 4px;
+    font-size: 8px;
+    color: var(--text-muted);
+    pointer-events: none;
+}

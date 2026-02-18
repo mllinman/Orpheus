@@ -1085,4 +1085,243 @@ export const useProjectStore = create((set, get) => ({
             )
         }));
     },
+
+    // ─── Phase 26: Humanize ───
+    humanize: (trackId, clipId, amount = 0.3) => {
+        get()._pushUndo('Humanize');
+        set(state => ({
+            tracks: state.tracks.map(t => {
+                if (t.id !== trackId) return t;
+                return {
+                    ...t,
+                    clips: t.clips.map(c => {
+                        if (c.id !== clipId || !c.notes) return c;
+                        return {
+                            ...c,
+                            notes: c.notes.map(n => ({
+                                ...n,
+                                startBeat: n.startBeat + (Math.random() - 0.5) * amount * 0.25,
+                                velocity: Math.max(1, Math.min(127,
+                                    n.velocity + Math.floor((Math.random() - 0.5) * amount * 30)
+                                )),
+                            })),
+                        };
+                    })
+                };
+            })
+        }));
+    },
+
+    // ─── Randomize Notes ───
+    randomizeNotes: (trackId, clipId, options = {}) => {
+        const { velocityRange = 20, timingRange = 0.1, pitchRange = 0 } = options;
+        get()._pushUndo('Randomize');
+        set(state => ({
+            tracks: state.tracks.map(t => {
+                if (t.id !== trackId) return t;
+                return {
+                    ...t,
+                    clips: t.clips.map(c => {
+                        if (c.id !== clipId || !c.notes) return c;
+                        return {
+                            ...c,
+                            notes: c.notes.map(n => ({
+                                ...n,
+                                velocity: Math.max(1, Math.min(127,
+                                    n.velocity + Math.floor((Math.random() - 0.5) * velocityRange)
+                                )),
+                                startBeat: n.startBeat + (Math.random() - 0.5) * timingRange,
+                                pitch: n.pitch + Math.floor((Math.random() - 0.5) * pitchRange),
+                            })),
+                        };
+                    })
+                };
+            })
+        }));
+    },
+
+    // ─── Note Repeat ───
+    noteRepeat: (trackId, clipId, noteId, interval = 0.25, count = 4) => {
+        get()._pushUndo('Note Repeat');
+        set(state => ({
+            tracks: state.tracks.map(t => {
+                if (t.id !== trackId) return t;
+                return {
+                    ...t,
+                    clips: t.clips.map(c => {
+                        if (c.id !== clipId || !c.notes) return c;
+                        const sourceNote = c.notes.find(n => n.id === noteId);
+                        if (!sourceNote) return c;
+                        const newNotes = [];
+                        for (let i = 1; i <= count; i++) {
+                            newNotes.push({
+                                ...sourceNote,
+                                id: uid(),
+                                startBeat: sourceNote.startBeat + interval * i,
+                            });
+                        }
+                        return { ...c, notes: [...c.notes, ...newNotes] };
+                    })
+                };
+            })
+        }));
+    },
+
+    // ─── Chord Detection ───
+    detectChords: (notes) => {
+        // Basic chord detection from a set of simultaneous notes
+        if (!notes || notes.length < 2) return null;
+        const pitches = notes.map(n => n.pitch % 12).sort((a, b) => a - b);
+        const unique = [...new Set(pitches)];
+        if (unique.length < 2) return null;
+
+        const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+        const root = unique[0];
+        const intervals = unique.slice(1).map(p => (p - root + 12) % 12);
+
+        const chordTypes = {
+            '3,7': 'min',
+            '4,7': 'maj',
+            '3,6': 'dim',
+            '4,8': 'aug',
+            '4,7,11': 'maj7',
+            '4,7,10': '7',
+            '3,7,10': 'min7',
+            '3,6,9': 'dim7',
+            '4,7,9': 'maj6',
+            '3,7,9': 'min6',
+            '2,7': 'sus2',
+            '5,7': 'sus4',
+        };
+
+        const key = intervals.join(',');
+        const type = chordTypes[key] || '';
+        return NOTE_NAMES[root] + type;
+    },
+
+    // ─── Phase 30: Automation Curves ───
+    setAutomationCurve: (trackId, paramId, points) => {
+        get()._pushUndo('Edit Automation');
+        set(state => ({
+            tracks: state.tracks.map(t =>
+                t.id === trackId ? {
+                    ...t,
+                    automation: {
+                        ...t.automation,
+                        [paramId]: points, // Array of { beat, value, curve: 'linear'|'bezier' }
+                    }
+                } : t
+            )
+        }));
+    },
+
+    copyAutomation: (trackId, paramId) => {
+        const state = get();
+        const track = state.tracks.find(t => t.id === trackId);
+        if (!track?.automation?.[paramId]) return null;
+        return JSON.parse(JSON.stringify(track.automation[paramId]));
+    },
+
+    pasteAutomation: (trackId, paramId, points) => {
+        get()._pushUndo('Paste Automation');
+        set(state => ({
+            tracks: state.tracks.map(t =>
+                t.id === trackId ? {
+                    ...t,
+                    automation: { ...t.automation, [paramId]: points }
+                } : t
+            )
+        }));
+    },
+
+    // ─── AI Auto-Level (Phase 30) ───
+    autoLevel: () => {
+        get()._pushUndo('Auto Level');
+        set(state => {
+            // Simple auto-leveling: normalize all track volumes relative to each other
+            const trackCount = state.tracks.filter(t => !t.muted).length;
+            if (trackCount === 0) return state;
+            const targetVolume = 0.7 / Math.sqrt(trackCount);
+            return {
+                tracks: state.tracks.map(t => ({
+                    ...t,
+                    volume: t.muted ? t.volume : targetVolume,
+                }))
+            };
+        });
+    },
+
+    // ─── Export Config (Phase 32) ───
+    setExportConfig: (config) => set({ exportConfig: config }),
+
+    exportStems: () => {
+        // Mark tracks for stem export
+        const state = get();
+        return state.tracks.map(t => ({
+            trackId: t.id,
+            name: t.name,
+            clips: t.clips,
+            volume: t.volume,
+            pan: t.pan,
+        }));
+    },
+
+    // ─── Project Archiving (Phase 32) ───
+    archiveProject: () => {
+        const state = get();
+        return {
+            version: 2,
+            timestamp: new Date().toISOString(),
+            projectName: state.projectName,
+            bpm: state.bpm,
+            timeSignature: state.timeSignature,
+            tracks: JSON.parse(JSON.stringify(state.tracks)),
+            trackFolders: JSON.parse(JSON.stringify(state.trackFolders)),
+            key: state.key,
+            scale: state.scale,
+        };
+    },
+
+    // ─── Version History (Phase 33) ───
+    saveVersion: (label = 'Manual Save') => {
+        const archive = get().archiveProject();
+        const versions = JSON.parse(localStorage.getItem('orpheus_versions') || '[]');
+        versions.push({ label, data: archive, timestamp: archive.timestamp });
+        if (versions.length > 20) versions.shift();
+        localStorage.setItem('orpheus_versions', JSON.stringify(versions));
+    },
+
+    getVersionHistory: () => {
+        return JSON.parse(localStorage.getItem('orpheus_versions') || '[]');
+    },
+
+    restoreVersion: (index) => {
+        const versions = JSON.parse(localStorage.getItem('orpheus_versions') || '[]');
+        if (!versions[index]) return;
+        get()._pushUndo('Restore Version');
+        const data = versions[index].data;
+        set({
+            tracks: data.tracks,
+            trackFolders: data.trackFolders || [],
+            bpm: data.bpm,
+            projectName: data.projectName,
+            key: data.key,
+            scale: data.scale,
+        });
+    },
+
+    // ─── Tempo/Key Changes Mid-Project (Phase 34) ───
+    tempoChanges: [],
+    addTempoChange: (beat, bpm) => {
+        set(state => ({
+            tempoChanges: [...state.tempoChanges, { beat, bpm }].sort((a, b) => a.beat - b.beat)
+        }));
+    },
+
+    keyChanges: [],
+    addKeyChange: (beat, key, scale) => {
+        set(state => ({
+            keyChanges: [...state.keyChanges, { beat, key, scale }].sort((a, b) => a.beat - b.beat)
+        }));
+    },
 }));
