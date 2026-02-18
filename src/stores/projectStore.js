@@ -3,6 +3,7 @@
 // ============================================
 
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import { uid, getTrackColor, generateWaveformData } from '../utils/helpers';
 import { useUIStore } from './uiStore';
 
@@ -134,1369 +135,1382 @@ function createDemoProject() {
     return tracks;
 }
 
-export const useProjectStore = create((set, get) => ({
-    // Project metadata
-    projectName: 'Untitled Project',
-    bpm: 128,
-    timeSignature: [4, 4],
-    sampleRate: 44100,
-    key: 'C',
-    scale: 'major',
+export const useProjectStore = create(
+    persist(
+        (set, get) => ({
+            // Project metadata
+            projectName: 'Untitled Project',
+            bpm: 128,
+            timeSignature: [4, 4],
+            sampleRate: 44100,
+            key: 'C',
+            scale: 'major',
 
-    // Tracks
-    tracks: createDemoProject(),
+            // Tracks
+            tracks: createDemoProject(),
 
-    // Track Folders
-    trackFolders: [], // { id, name, color, trackIds[], collapsed }
+            // Track Folders
+            trackFolders: [], // { id, name, color, trackIds[], collapsed }
 
-    // Transport
-    isPlaying: false,
-    isRecording: false,
-    isLooping: true,
-    loopStart: 0,
-    loopEnd: 32,
-    playheadPosition: 0,
-    masterVolume: 0.8,
+            // Transport
+            isPlaying: false,
+            isRecording: false,
+            isLooping: true,
+            loopStart: 0,
+            loopEnd: 32,
+            playheadPosition: 0,
+            masterVolume: 0.8,
 
-    // Undo/redo
-    undoStack: [],
-    redoStack: [],
-    undoLabels: [],  // Label for each undo entry
-    _maxHistory: 50,
-
-    // Auto-save
-    _autoSaveTimer: null,
-    lastAutoSave: null,
-
-    // Push current state to undo stack before making changes
-    _pushUndo: (label = 'Edit') => {
-        const state = get();
-        const snapshot = {
-            tracks: JSON.parse(JSON.stringify(state.tracks)),
-            trackFolders: JSON.parse(JSON.stringify(state.trackFolders)),
-            projectName: state.projectName,
-            bpm: state.bpm,
-            timeSignature: state.timeSignature,
-        };
-        set(prev => ({
-            undoStack: [...prev.undoStack.slice(-prev._maxHistory), snapshot],
-            undoLabels: [...prev.undoLabels.slice(-prev._maxHistory), label],
+            // Undo/redo
+            undoStack: [],
             redoStack: [],
-        }));
-    },
-
-    undo: () => {
-        const { undoStack, undoLabels, tracks, trackFolders, projectName, bpm, timeSignature } = get();
-        if (undoStack.length === 0) return;
-        const current = { tracks: JSON.parse(JSON.stringify(tracks)), trackFolders: JSON.parse(JSON.stringify(trackFolders)), projectName, bpm, timeSignature };
-        const prev = undoStack[undoStack.length - 1];
-        set({
-            ...prev,
-            undoStack: undoStack.slice(0, -1),
-            undoLabels: undoLabels.slice(0, -1),
-            redoStack: [...get().redoStack, current],
-        });
-    },
-
-    redo: () => {
-        const { redoStack, tracks, trackFolders, projectName, bpm, timeSignature } = get();
-        if (redoStack.length === 0) return;
-        const current = { tracks: JSON.parse(JSON.stringify(tracks)), trackFolders: JSON.parse(JSON.stringify(trackFolders)), projectName, bpm, timeSignature };
-        const next = redoStack[redoStack.length - 1];
-        set({
-            ...next,
-            redoStack: redoStack.slice(0, -1),
-            undoStack: [...get().undoStack, current],
-        });
-    },
-    // Actions
-    setProjectName: (name) => set({ projectName: name }),
-    setBpm: (bpm) => set({ bpm: Math.max(20, Math.min(300, bpm)) }),
-    setTimeSignature: (ts) => set({ timeSignature: ts }),
-    setMasterVolume: (v) => set({ masterVolume: v }),
-
-    setPlaying: (v) => set({ isPlaying: v }),
-    setRecording: (v) => set({ isRecording: v }),
-    toggleLoop: () => set((s) => ({ isLooping: !s.isLooping })),
-    setPlayheadPosition: (pos) => set({ playheadPosition: pos }),
-    setLoopRange: (start, end) => set({ loopStart: start, loopEnd: end }),
-
-    addTrack: (type = 'audio') => set((state) => {
-        get()._pushUndo();
-        const track = createDefaultTrack(state.tracks.length, type);
-        return { tracks: [...state.tracks, track] };
-    }),
-
-    removeTrack: (id) => {
-        get()._pushUndo();
-        set((state) => ({ tracks: state.tracks.filter(t => t.id !== id) }));
-    },
-
-    duplicateTrack: (id) => set((state) => {
-        const source = state.tracks.find(t => t.id === id);
-        if (!source) return state;
-        const copy = {
-            ...source,
-            id: uid(),
-            name: `${source.name} (Copy)`,
-            clips: source.clips.map(c => ({ ...c, id: uid() }))
-        };
-        const idx = state.tracks.findIndex(t => t.id === id);
-        const tracks = [...state.tracks];
-        tracks.splice(idx + 1, 0, copy);
-        return { tracks };
-    }),
-
-    updateTrack: (id, updates) => set((state) => ({
-        tracks: state.tracks.map(t => t.id === id ? { ...t, ...updates } : t)
-    })),
-
-    toggleMute: (id) => set((state) => ({
-        tracks: state.tracks.map(t => t.id === id ? { ...t, mute: !t.mute } : t)
-    })),
-
-    toggleSolo: (id) => set((state) => ({
-        tracks: state.tracks.map(t => t.id === id ? { ...t, solo: !t.solo } : t)
-    })),
-
-    toggleArmed: (id) => set((state) => ({
-        tracks: state.tracks.map(t => t.id === id ? { ...t, armed: !t.armed } : t)
-    })),
-
-    setTrackVolume: (id, volume) => set((state) => ({
-        tracks: state.tracks.map(t => t.id === id ? { ...t, volume } : t)
-    })),
-
-    setTrackPan: (id, pan) => set((state) => ({
-        tracks: state.tracks.map(t => t.id === id ? { ...t, pan } : t)
-    })),
-
-    addTrackEffect: (trackId, effect) => {
-        get()._pushUndo();
-        set((state) => ({
-            tracks: state.tracks.map(t =>
-                t.id === trackId ? { ...t, effects: [...t.effects, { ...effect, id: uid() }] } : t
-            )
-        }));
-    },
-
-    removeTrackEffect: (trackId, effectId) => {
-        get()._pushUndo();
-        set((state) => ({
-            tracks: state.tracks.map(t =>
-                t.id === trackId ? { ...t, effects: t.effects.filter(e => e.id !== effectId) } : t
-            )
-        }));
-    },
-
-    renameTrack: (trackId, name) => set((state) => ({
-        tracks: state.tracks.map(t => t.id === trackId ? { ...t, name } : t)
-    })),
-
-    setTrackColor: (trackId, color) => set((state) => ({
-        tracks: state.tracks.map(t => t.id === trackId ? { ...t, color } : t)
-    })),
-
-    setTrackAutotune: (trackId, params) => set((state) => ({
-        tracks: state.tracks.map(t => t.id === trackId ? { ...t, autotune: { ...t.autotune, ...params } } : t)
-    })),
-
-    quantizeSelection: (grid = 0.25) => {
-        const state = get();
-        const { selectedClipId, selectedClipTrackId } = useUIStore.getState();
-
-        if (!selectedClipId || !selectedClipTrackId) return;
-
-        const trackIndex = state.tracks.findIndex(t => t.id === selectedClipTrackId);
-        if (trackIndex === -1) return;
-
-        const track = state.tracks[trackIndex];
-        const clipIndex = track.clips.findIndex(c => c.id === selectedClipId);
-        if (clipIndex === -1) return;
-
-        state._pushUndo();
-
-        const clip = { ...track.clips[clipIndex] };
-
-        // Quantize Clip Start
-        clip.startBeat = Math.round(clip.startBeat / grid) * grid;
-
-        // If MIDI, quantize notes
-        if (clip.type === 'midi' && clip.notes) {
-            clip.notes = clip.notes.map(note => ({
-                ...note,
-                startBeat: Math.round(note.startBeat / grid) * grid,
-                lengthBeats: Math.max(grid, Math.round(note.lengthBeats / grid) * grid)
-            }));
-        }
-
-        const newTracks = [...state.tracks];
-        newTracks[trackIndex] = {
-            ...track,
-            clips: [
-                ...track.clips.slice(0, clipIndex),
-                clip,
-                ...track.clips.slice(clipIndex + 1)
-            ]
-        };
-
-        set({ tracks: newTracks });
-    },
-
-
-    // ─── Stem Separation (Real-time Filtering) ───
-    processStems: () => {
-        const state = get();
-        const { selectedClipId, selectedClipTrackId } = useUIStore.getState();
-
-        if (!selectedClipId || !selectedClipTrackId) return;
-
-        const track = state.tracks.find(t => t.id === selectedClipTrackId);
-        if (!track) return;
-
-        const clip = track.clips.find(c => c.id === selectedClipId);
-        if (!clip) return;
-
-        state._pushUndo();
-        const baseTrackIndex = state.tracks.findIndex(t => t.id === selectedClipTrackId);
-        if (baseTrackIndex === -1) return;
-
-        // Helper to add stem track
-        const addStemTrack = (name, eqSettings) => {
-            const newTrackId = uid();
-            const newClip = { ...clip, id: uid(), bufferId: clip.bufferId }; // Clone clip
-
-            // Create EQ effect
-            const eqEffect = {
-                id: uid(),
-                type: 'eq',
-                active: true,
-                params: {
-                    low: 0, mid: 0, high: 0,
-                    lowFreq: 100, midFreq: 1000, highFreq: 5000,
-                    ...eqSettings
-                }
-            };
-
-            return {
-                id: newTrackId,
-                name: `${name} (${clip.name})`,
-                type: 'audio',
-                volume: 0.8,
-                pan: 0,
-                muted: false,
-                soloed: false,
-                color: getTrackColor(state.tracks.length),
-                clips: [newClip],
-                effects: [eqEffect]
-            };
-        };
-
-        const vocalTrack = addStemTrack('Vocals', { low: -24, mid: 3, high: 2, lowFreq: 300 }); // HPF approximation via low shelf cut
-        const drumTrack = addStemTrack('Drums', { low: 4, mid: -3, high: 4, lowFreq: 120, midFreq: 500, highFreq: 8000 });
-        const bassTrack = addStemTrack('Bass', { low: 6, mid: -24, high: -24, lowFreq: 250 }); // LPF approx
-        const otherTrack = addStemTrack('Other', { low: -6, mid: 4, high: -6, midFreq: 1500 }); // Band focused
-
-        const newTracks = [...state.tracks];
-        // Insert stems after the source track
-        newTracks.splice(baseTrackIndex + 1, 0, vocalTrack, drumTrack, bassTrack, otherTrack);
-
-        set({ tracks: newTracks });
-        set({ tracks: newTracks });
-    },
-
-    addStemTracks: (baseTrackId, originalClipId, stems) => {
-        const state = get();
-        const baseTrackIndex = state.tracks.findIndex(t => t.id === baseTrackId);
-        if (baseTrackIndex === -1) return;
-
-        const track = state.tracks[baseTrackIndex];
-        const clip = track.clips.find(c => c.id === originalClipId);
-        if (!clip) return;
-
-        state._pushUndo(); // Save state
-
-        const newTracks = Object.entries(stems).map(([label, bufferId], i) => {
-            const newTrackId = uid();
-            return {
-                id: newTrackId,
-                name: label,
-                type: 'audio',
-                volume: 0.8,
-                pan: 0,
-                color: getTrackColor(state.tracks.length + i),
-                mute: false,
-                solo: false,
-                clips: [{
-                    ...clip,
-                    id: uid(),
-                    trackId: newTrackId,
-                    bufferId,
-                    name: label
-                    // We keep original startBeat/length to match sync
-                }],
-                effects: []
-            };
-        });
-
-        const updatedTracks = [...state.tracks];
-        updatedTracks.splice(baseTrackIndex + 1, 0, ...newTracks);
-        set({ tracks: updatedTracks });
-    },
-
-    addClip: (trackId, clip) => set((state) => ({
-        tracks: state.tracks.map(t =>
-            t.id === trackId ? { ...t, clips: [...t.clips, clip] } : t
-        )
-    })),
-
-    removeClip: (trackId, clipId) => set((state) => ({
-        tracks: state.tracks.map(t =>
-            t.id === trackId ? { ...t, clips: t.clips.filter(c => c.id !== clipId) } : t
-        )
-    })),
-
-    updateClip: (trackId, clipId, updates) => set((state) => ({
-        tracks: state.tracks.map(t =>
-            t.id === trackId ? {
-                ...t,
-                clips: t.clips.map(c => c.id === clipId ? { ...c, ...updates } : c)
-            } : t
-        )
-    })),
-
-    // Advanced Editing
-    splitClip: (trackId, clipId, splitBeat) => {
-        const state = get();
-        const track = state.tracks.find(t => t.id === trackId);
-        if (!track) return;
-        const clip = track.clips.find(c => c.id === clipId);
-        if (!clip) return;
-
-        // validation
-        if (splitBeat <= clip.startBeat || splitBeat >= clip.startBeat + clip.lengthBeats) return;
-
-        state._pushUndo();
-
-        const firstLength = splitBeat - clip.startBeat;
-        const secondLength = clip.lengthBeats - firstLength;
-
-        // First part (matches original start, shorter length)
-        const leftClip = {
-            ...clip,
-            lengthBeats: firstLength,
-            // fadeIn/Out logic: keep fadeIn, reset fadeOut? 
-            // For non-destructive split, we usually want to keep defaults unless user set them.
-            // If user had a fadeOut on the original clip, it should probably move to the right clip?
-            // For now, simple split.
-            fadeOut: 0 // Remove fade out from left part
-        };
-
-        // Second part (starts at split, offset increases)
-        const rightClip = {
-            ...clip,
-            id: uid(),
-            startBeat: splitBeat,
-            lengthBeats: secondLength,
-            offset: clip.offset + (firstLength / state.bpm) * 60, // Add time offset
-            fadeIn: 0, // Remove fade in from right part
-            fadeOut: clip.fadeOut // Keep original fade out
-        };
-
-        set(s => ({
-            tracks: s.tracks.map(t => t.id === trackId ? {
-                ...t,
-                clips: t.clips.map(c => c.id === clipId ? leftClip : c).concat(rightClip)
-            } : t)
-        }));
-    },
-
-    reverseClip: (trackId, clipId) => {
-        const state = get();
-        state._pushUndo();
-        set(s => ({
-            tracks: s.tracks.map(t => t.id === trackId ? {
-                ...t,
-                clips: t.clips.map(c => c.id === clipId ? { ...c, isReversed: !c.isReversed } : c)
-            } : t)
-        }));
-    },
-
-    // MIDI note editing
-    addNote: (trackId, clipId, note) => set((state) => ({
-        tracks: state.tracks.map(t =>
-            t.id === trackId ? {
-                ...t,
-                clips: t.clips.map(c =>
-                    c.id === clipId ? { ...c, notes: [...(c.notes || []), note] } : c
-                )
-            } : t
-        )
-    })),
-
-    removeNote: (trackId, clipId, noteId) => set((state) => ({
-        tracks: state.tracks.map(t =>
-            t.id === trackId ? {
-                ...t,
-                clips: t.clips.map(c =>
-                    c.id === clipId ? { ...c, notes: (c.notes || []).filter(n => n.id !== noteId) } : c
-                )
-            } : t
-        )
-    })),
-
-    updateNote: (trackId, clipId, noteId, updates) => set((state) => ({
-        tracks: state.tracks.map(t =>
-            t.id === trackId ? {
-                ...t,
-                clips: t.clips.map(c =>
-                    c.id === clipId ? {
-                        ...c,
-                        notes: (c.notes || []).map(n => n.id === noteId ? { ...n, ...updates } : n)
-                    } : c
-                )
-            } : t
-        )
-    })),
-
-    // Automation
-    updateTrackAutomation: (trackId, laneIndex, param, points) => set((state) => ({
-        tracks: state.tracks.map(t => {
-            if (t.id !== trackId) return t;
-            const lanes = [...(t.automationLanes || [])];
-            while (lanes.length <= laneIndex) lanes.push({ param: 'volume', points: [] });
-            lanes[laneIndex] = { param, points };
-            return { ...t, automationLanes: lanes };
-        })
-    })),
-
-    addAutomationLane: (trackId) => {
-        get()._pushUndo();
-        set((state) => ({
-            tracks: state.tracks.map(t =>
-                t.id === trackId
-                    ? { ...t, automationLanes: [...(t.automationLanes || []), { param: 'volume', points: [{ beat: 0, value: 0.75 }, { beat: 32, value: 0.75 }] }] }
-                    : t
-            )
-        }));
-    },
-
-    removeAutomationLane: (trackId, laneIndex) => {
-        get()._pushUndo();
-        set((state) => ({
-            tracks: state.tracks.map(t =>
-                t.id === trackId
-                    ? { ...t, automationLanes: (t.automationLanes || []).filter((_, i) => i !== laneIndex) }
-                    : t
-            )
-        }));
-    },
-
-    // ─── Track Folders ───
-    addTrackFolder: (name = 'New Folder') => {
-        get()._pushUndo('Add Folder');
-        set(prev => ({
-            trackFolders: [...prev.trackFolders, { id: uid(), name, color: '#666', trackIds: [], collapsed: false }]
-        }));
-    },
-
-    removeTrackFolder: (folderId) => {
-        get()._pushUndo('Remove Folder');
-        set(prev => ({
-            trackFolders: prev.trackFolders.filter(f => f.id !== folderId)
-        }));
-    },
-
-    toggleFolderCollapse: (folderId) => {
-        set(prev => ({
-            trackFolders: prev.trackFolders.map(f =>
-                f.id === folderId ? { ...f, collapsed: !f.collapsed } : f
-            )
-        }));
-    },
-
-    addTrackToFolder: (folderId, trackId) => {
-        set(prev => ({
-            trackFolders: prev.trackFolders.map(f =>
-                f.id === folderId ? { ...f, trackIds: [...f.trackIds.filter(id => id !== trackId), trackId] } : f
-            )
-        }));
-    },
-
-    removeTrackFromFolder: (folderId, trackId) => {
-        set(prev => ({
-            trackFolders: prev.trackFolders.map(f =>
-                f.id === folderId ? { ...f, trackIds: f.trackIds.filter(id => id !== trackId) } : f
-            )
-        }));
-    },
-
-    // ─── Glue / Merge Clips ───
-    glueClips: (trackId, clipIds) => {
-        get()._pushUndo('Glue Clips');
-        set(state => {
-            const track = state.tracks.find(t => t.id === trackId);
-            if (!track) return state;
-            const toGlue = track.clips.filter(c => clipIds.includes(c.id)).sort((a, b) => a.startBeat - b.startBeat);
-            if (toGlue.length < 2) return state;
-            const first = toGlue[0];
-            const last = toGlue[toGlue.length - 1];
-            const merged = {
-                ...first,
-                id: uid(),
-                name: first.name + ' (merged)',
-                lengthBeats: (last.startBeat + last.lengthBeats) - first.startBeat,
-            };
-            return {
-                tracks: state.tracks.map(t =>
-                    t.id === trackId ? { ...t, clips: [...t.clips.filter(c => !clipIds.includes(c.id)), merged] } : t
-                )
-            };
-        });
-    },
-
-    // ─── Duplicate Clip ───
-    duplicateClip: (trackId, clipId) => {
-        get()._pushUndo('Duplicate Clip');
-        set(state => {
-            const track = state.tracks.find(t => t.id === trackId);
-            if (!track) return state;
-            const clip = track.clips.find(c => c.id === clipId);
-            if (!clip) return state;
-            const dup = { ...JSON.parse(JSON.stringify(clip)), id: uid(), startBeat: clip.startBeat + clip.lengthBeats };
-            return {
-                tracks: state.tracks.map(t =>
-                    t.id === trackId ? { ...t, clips: [...t.clips, dup] } : t
-                )
-            };
-        });
-    },
-
-    // ─── Freeze / Flatten ───
-    freezeTrack: (trackId) => {
-        get()._pushUndo('Freeze Track');
-        set(state => ({
-            tracks: state.tracks.map(t =>
-                t.id === trackId ? { ...t, frozen: true } : t
-            )
-        }));
-    },
-
-    unfreezeTrack: (trackId) => {
-        set(state => ({
-            tracks: state.tracks.map(t =>
-                t.id === trackId ? { ...t, frozen: false } : t
-            )
-        }));
-    },
-
-    // ─── Templates ───
-    saveTemplate: (name) => {
-        const state = get();
-        const template = {
-            name,
-            bpm: state.bpm,
-            timeSignature: state.timeSignature,
-            tracks: state.tracks.map(t => ({ ...t, clips: [] })), // No clip data
-            trackFolders: state.trackFolders,
-            savedAt: new Date().toISOString(),
-        };
-        const templates = JSON.parse(localStorage.getItem('orpheus_templates') || '[]');
-        templates.push(template);
-        localStorage.setItem('orpheus_templates', JSON.stringify(templates));
-        return template;
-    },
-
-    loadTemplate: (index) => {
-        const templates = JSON.parse(localStorage.getItem('orpheus_templates') || '[]');
-        if (!templates[index]) return;
-        const tmpl = templates[index];
-        get()._pushUndo('Load Template');
-        set({
-            bpm: tmpl.bpm,
-            timeSignature: tmpl.timeSignature,
-            tracks: tmpl.tracks,
-            trackFolders: tmpl.trackFolders || [],
-        });
-    },
-
-    getTemplates: () => {
-        return JSON.parse(localStorage.getItem('orpheus_templates') || '[]');
-    },
-
-    deleteTemplate: (index) => {
-        const templates = JSON.parse(localStorage.getItem('orpheus_templates') || '[]');
-        templates.splice(index, 1);
-        localStorage.setItem('orpheus_templates', JSON.stringify(templates));
-    },
-
-    // ─── Auto-Save ───
-    startAutoSave: () => {
-        const timer = setInterval(() => {
-            const state = get();
-            if (state.tracks.length > 0) {
-                state.saveProject();
-                set({ lastAutoSave: new Date().toISOString() });
-            }
-        }, 5000);
-        set({ _autoSaveTimer: timer });
-    },
-
-    stopAutoSave: () => {
-        const timer = get()._autoSaveTimer;
-        if (timer) clearInterval(timer);
-        set({ _autoSaveTimer: null });
-    },
-
-    // ─── Slip Editing ───
-    slipEdit: (trackId, clipId, offsetDelta) => {
-        get()._pushUndo('Slip Edit');
-        set(state => ({
-            tracks: state.tracks.map(t =>
-                t.id === trackId ? {
-                    ...t,
-                    clips: t.clips.map(c => c.id === clipId ? { ...c, offset: Math.max(0, (c.offset || 0) + offsetDelta) } : c)
-                } : t
-            )
-        }));
-    },
-
-    // ─── Project Key/Scale ───
-    setKey: (key) => set({ key }),
-    setScale: (scale) => set({ scale }),
-
-    // Serialization
-    saveProject: () => {
-        const state = get();
-        const data = {
-            projectName: state.projectName,
-            bpm: state.bpm,
-            timeSignature: state.timeSignature,
-            tracks: state.tracks,
-            loopStart: state.loopStart,
-            loopEnd: state.loopEnd,
-        };
-        const json = JSON.stringify(data);
-        localStorage.setItem('orpheus_project', json);
-        return json;
-    },
-
-    loadProject: () => {
-        const json = localStorage.getItem('orpheus_project');
-        if (!json) return false;
-        try {
-            const data = JSON.parse(json);
-            set(data);
-            return true;
-        } catch {
-            return false;
-        }
-    },
-
-    exportProject: () => {
-        const state = get();
-        const data = {
-            projectName: state.projectName,
-            bpm: state.bpm,
-            timeSignature: state.timeSignature,
-            tracks: state.tracks.map(t => ({
-                ...t,
-                clips: t.clips.map(c => ({
-                    ...c,
-                    waveformData: undefined // Don't export waveform data
-                }))
-            })),
-        };
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${state.projectName}.orpheus`;
-        a.click();
-        URL.revokeObjectURL(url);
-    },
-
-    newProject: () => set({
-        projectName: 'Untitled Project',
-        bpm: 120,
-        timeSignature: [4, 4],
-        tracks: [createDefaultTrack(0, 'audio')],
-        playheadPosition: 0,
-        isPlaying: false,
-        isRecording: false,
-        undoStack: [],
-        redoStack: [],
-    }),
-
-    // Import project from file
-    importProject: (file) => {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                try {
-                    const data = JSON.parse(e.target.result);
-                    set({
-                        ...data,
-                        isPlaying: false,
-                        isRecording: false,
-                        playheadPosition: 0,
-                        undoStack: [],
-                        redoStack: [],
-                    });
-                    resolve(true);
-                } catch {
-                    reject(new Error('Invalid project file'));
-                }
-            };
-            reader.onerror = () => reject(new Error('Failed to read file'));
-            reader.readAsText(file);
-        });
-    },
-
-    // ─── Cloud Storage ───
-    isSaving: false,
-    isLoading: false,
-    cloudProjects: [],
-
-    saveToCloud: async () => {
-        const state = get();
-        set({ isSaving: true });
-        try {
-            const data = {
-                name: state.projectName,
-                data: {
-                    tracks: state.tracks,
+            undoLabels: [],  // Label for each undo entry
+            _maxHistory: 50,
+
+            // Auto-save
+            _autoSaveTimer: null,
+            lastAutoSave: null,
+
+            // Push current state to undo stack before making changes
+            _pushUndo: (label = 'Edit') => {
+                const state = get();
+                const snapshot = {
+                    tracks: JSON.parse(JSON.stringify(state.tracks)),
+                    trackFolders: JSON.parse(JSON.stringify(state.trackFolders)),
+                    projectName: state.projectName,
                     bpm: state.bpm,
                     timeSignature: state.timeSignature,
-                    loopStart: state.loopStart,
-                    loopEnd: state.loopEnd
+                };
+                set(prev => ({
+                    undoStack: [...prev.undoStack.slice(-prev._maxHistory), snapshot],
+                    undoLabels: [...prev.undoLabels.slice(-prev._maxHistory), label],
+                    redoStack: [],
+                }));
+            },
+
+            undo: () => {
+                const { undoStack, undoLabels, tracks, trackFolders, projectName, bpm, timeSignature } = get();
+                if (undoStack.length === 0) return;
+                const current = { tracks: JSON.parse(JSON.stringify(tracks)), trackFolders: JSON.parse(JSON.stringify(trackFolders)), projectName, bpm, timeSignature };
+                const prev = undoStack[undoStack.length - 1];
+                set({
+                    ...prev,
+                    undoStack: undoStack.slice(0, -1),
+                    undoLabels: undoLabels.slice(0, -1),
+                    redoStack: [...get().redoStack, current],
+                });
+            },
+
+            redo: () => {
+                const { redoStack, tracks, trackFolders, projectName, bpm, timeSignature } = get();
+                if (redoStack.length === 0) return;
+                const current = { tracks: JSON.parse(JSON.stringify(tracks)), trackFolders: JSON.parse(JSON.stringify(trackFolders)), projectName, bpm, timeSignature };
+                const next = redoStack[redoStack.length - 1];
+                set({
+                    ...next,
+                    redoStack: redoStack.slice(0, -1),
+                    undoStack: [...get().undoStack, current],
+                });
+            },
+            // Actions
+            setProjectName: (name) => set({ projectName: name }),
+            setBpm: (bpm) => set({ bpm: Math.max(20, Math.min(300, bpm)) }),
+            setTimeSignature: (ts) => set({ timeSignature: ts }),
+            setMasterVolume: (v) => set({ masterVolume: v }),
+
+            setPlaying: (v) => set({ isPlaying: v }),
+            setRecording: (v) => set({ isRecording: v }),
+            toggleLoop: () => set((s) => ({ isLooping: !s.isLooping })),
+            setPlayheadPosition: (pos) => set({ playheadPosition: pos }),
+            setLoopRange: (start, end) => set({ loopStart: start, loopEnd: end }),
+
+            addTrack: (type = 'audio') => set((state) => {
+                get()._pushUndo();
+                const track = createDefaultTrack(state.tracks.length, type);
+                return { tracks: [...state.tracks, track] };
+            }),
+
+            removeTrack: (id) => {
+                get()._pushUndo();
+                set((state) => ({ tracks: state.tracks.filter(t => t.id !== id) }));
+            },
+
+            duplicateTrack: (id) => set((state) => {
+                const source = state.tracks.find(t => t.id === id);
+                if (!source) return state;
+                const copy = {
+                    ...source,
+                    id: uid(),
+                    name: `${source.name} (Copy)`,
+                    clips: source.clips.map(c => ({ ...c, id: uid() }))
+                };
+                const idx = state.tracks.findIndex(t => t.id === id);
+                const tracks = [...state.tracks];
+                tracks.splice(idx + 1, 0, copy);
+                return { tracks };
+            }),
+
+            updateTrack: (id, updates) => set((state) => ({
+                tracks: state.tracks.map(t => t.id === id ? { ...t, ...updates } : t)
+            })),
+
+            toggleMute: (id) => set((state) => ({
+                tracks: state.tracks.map(t => t.id === id ? { ...t, mute: !t.mute } : t)
+            })),
+
+            toggleSolo: (id) => set((state) => ({
+                tracks: state.tracks.map(t => t.id === id ? { ...t, solo: !t.solo } : t)
+            })),
+
+            toggleArmed: (id) => set((state) => ({
+                tracks: state.tracks.map(t => t.id === id ? { ...t, armed: !t.armed } : t)
+            })),
+
+            setTrackVolume: (id, volume) => set((state) => ({
+                tracks: state.tracks.map(t => t.id === id ? { ...t, volume } : t)
+            })),
+
+            setTrackPan: (id, pan) => set((state) => ({
+                tracks: state.tracks.map(t => t.id === id ? { ...t, pan } : t)
+            })),
+
+            addTrackEffect: (trackId, effect) => {
+                get()._pushUndo();
+                set((state) => ({
+                    tracks: state.tracks.map(t =>
+                        t.id === trackId ? { ...t, effects: [...t.effects, { ...effect, id: uid() }] } : t
+                    )
+                }));
+            },
+
+            removeTrackEffect: (trackId, effectId) => {
+                get()._pushUndo();
+                set((state) => ({
+                    tracks: state.tracks.map(t =>
+                        t.id === trackId ? { ...t, effects: t.effects.filter(e => e.id !== effectId) } : t
+                    )
+                }));
+            },
+
+            renameTrack: (trackId, name) => set((state) => ({
+                tracks: state.tracks.map(t => t.id === trackId ? { ...t, name } : t)
+            })),
+
+            setTrackColor: (trackId, color) => set((state) => ({
+                tracks: state.tracks.map(t => t.id === trackId ? { ...t, color } : t)
+            })),
+
+            setTrackAutotune: (trackId, params) => set((state) => ({
+                tracks: state.tracks.map(t => t.id === trackId ? { ...t, autotune: { ...t.autotune, ...params } } : t)
+            })),
+
+            quantizeSelection: (grid = 0.25) => {
+                const state = get();
+                const { selectedClipId, selectedClipTrackId } = useUIStore.getState();
+
+                if (!selectedClipId || !selectedClipTrackId) return;
+
+                const trackIndex = state.tracks.findIndex(t => t.id === selectedClipTrackId);
+                if (trackIndex === -1) return;
+
+                const track = state.tracks[trackIndex];
+                const clipIndex = track.clips.findIndex(c => c.id === selectedClipId);
+                if (clipIndex === -1) return;
+
+                state._pushUndo();
+
+                const clip = { ...track.clips[clipIndex] };
+
+                // Quantize Clip Start
+                clip.startBeat = Math.round(clip.startBeat / grid) * grid;
+
+                // If MIDI, quantize notes
+                if (clip.type === 'midi' && clip.notes) {
+                    clip.notes = clip.notes.map(note => ({
+                        ...note,
+                        startBeat: Math.round(note.startBeat / grid) * grid,
+                        lengthBeats: Math.max(grid, Math.round(note.lengthBeats / grid) * grid)
+                    }));
                 }
-            };
 
-            const res = await fetch('/api/projects', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
-            });
+                const newTracks = [...state.tracks];
+                newTracks[trackIndex] = {
+                    ...track,
+                    clips: [
+                        ...track.clips.slice(0, clipIndex),
+                        clip,
+                        ...track.clips.slice(clipIndex + 1)
+                    ]
+                };
 
-            if (!res.ok) throw new Error('Failed to save');
-            const saved = await res.json();
-            // Refresh list
-            get().fetchProjects();
-            return true;
-        } catch (err) {
-            console.error(err);
-            return false;
-        } finally {
-            set({ isSaving: false });
-        }
-    },
+                set({ tracks: newTracks });
+            },
 
-    fetchProjects: async () => {
-        try {
-            const res = await fetch('/api/projects');
-            if (res.ok) {
-                const projects = await res.json();
-                set({ cloudProjects: projects });
-            }
-        } catch (err) {
-            console.error(err);
-        }
-    },
 
-    loadFromCloud: async (id) => {
-        set({ isLoading: true });
-        try {
-            const res = await fetch(`/api/projects/${id}`);
-            if (!res.ok) throw new Error('Failed to load');
-            const project = await res.json();
-            const data = project.data;
+            // ─── Stem Separation (Real-time Filtering) ───
+            processStems: () => {
+                const state = get();
+                const { selectedClipId, selectedClipTrackId } = useUIStore.getState();
 
-            set({
-                projectName: project.name,
-                tracks: data.tracks,
-                bpm: data.bpm,
-                timeSignature: data.timeSignature,
-                loopStart: data.loopStart,
-                loopEnd: data.loopEnd,
+                if (!selectedClipId || !selectedClipTrackId) return;
+
+                const track = state.tracks.find(t => t.id === selectedClipTrackId);
+                if (!track) return;
+
+                const clip = track.clips.find(c => c.id === selectedClipId);
+                if (!clip) return;
+
+                state._pushUndo();
+                const baseTrackIndex = state.tracks.findIndex(t => t.id === selectedClipTrackId);
+                if (baseTrackIndex === -1) return;
+
+                // Helper to add stem track
+                const addStemTrack = (name, eqSettings) => {
+                    const newTrackId = uid();
+                    const newClip = { ...clip, id: uid(), bufferId: clip.bufferId }; // Clone clip
+
+                    // Create EQ effect
+                    const eqEffect = {
+                        id: uid(),
+                        type: 'eq',
+                        active: true,
+                        params: {
+                            low: 0, mid: 0, high: 0,
+                            lowFreq: 100, midFreq: 1000, highFreq: 5000,
+                            ...eqSettings
+                        }
+                    };
+
+                    return {
+                        id: newTrackId,
+                        name: `${name} (${clip.name})`,
+                        type: 'audio',
+                        volume: 0.8,
+                        pan: 0,
+                        muted: false,
+                        soloed: false,
+                        color: getTrackColor(state.tracks.length),
+                        clips: [newClip],
+                        effects: [eqEffect]
+                    };
+                };
+
+                const vocalTrack = addStemTrack('Vocals', { low: -24, mid: 3, high: 2, lowFreq: 300 }); // HPF approximation via low shelf cut
+                const drumTrack = addStemTrack('Drums', { low: 4, mid: -3, high: 4, lowFreq: 120, midFreq: 500, highFreq: 8000 });
+                const bassTrack = addStemTrack('Bass', { low: 6, mid: -24, high: -24, lowFreq: 250 }); // LPF approx
+                const otherTrack = addStemTrack('Other', { low: -6, mid: 4, high: -6, midFreq: 1500 }); // Band focused
+
+                const newTracks = [...state.tracks];
+                // Insert stems after the source track
+                newTracks.splice(baseTrackIndex + 1, 0, vocalTrack, drumTrack, bassTrack, otherTrack);
+
+                set({ tracks: newTracks });
+                set({ tracks: newTracks });
+            },
+
+            addStemTracks: (baseTrackId, originalClipId, stems) => {
+                const state = get();
+                const baseTrackIndex = state.tracks.findIndex(t => t.id === baseTrackId);
+                if (baseTrackIndex === -1) return;
+
+                const track = state.tracks[baseTrackIndex];
+                const clip = track.clips.find(c => c.id === originalClipId);
+                if (!clip) return;
+
+                state._pushUndo(); // Save state
+
+                const newTracks = Object.entries(stems).map(([label, bufferId], i) => {
+                    const newTrackId = uid();
+                    return {
+                        id: newTrackId,
+                        name: label,
+                        type: 'audio',
+                        volume: 0.8,
+                        pan: 0,
+                        color: getTrackColor(state.tracks.length + i),
+                        mute: false,
+                        solo: false,
+                        clips: [{
+                            ...clip,
+                            id: uid(),
+                            trackId: newTrackId,
+                            bufferId,
+                            name: label
+                            // We keep original startBeat/length to match sync
+                        }],
+                        effects: []
+                    };
+                });
+
+                const updatedTracks = [...state.tracks];
+                updatedTracks.splice(baseTrackIndex + 1, 0, ...newTracks);
+                set({ tracks: updatedTracks });
+            },
+
+            addClip: (trackId, clip) => set((state) => ({
+                tracks: state.tracks.map(t =>
+                    t.id === trackId ? { ...t, clips: [...t.clips, clip] } : t
+                )
+            })),
+
+            removeClip: (trackId, clipId) => set((state) => ({
+                tracks: state.tracks.map(t =>
+                    t.id === trackId ? { ...t, clips: t.clips.filter(c => c.id !== clipId) } : t
+                )
+            })),
+
+            updateClip: (trackId, clipId, updates) => set((state) => ({
+                tracks: state.tracks.map(t =>
+                    t.id === trackId ? {
+                        ...t,
+                        clips: t.clips.map(c => c.id === clipId ? { ...c, ...updates } : c)
+                    } : t
+                )
+            })),
+
+            // Advanced Editing
+            splitClip: (trackId, clipId, splitBeat) => {
+                const state = get();
+                const track = state.tracks.find(t => t.id === trackId);
+                if (!track) return;
+                const clip = track.clips.find(c => c.id === clipId);
+                if (!clip) return;
+
+                // validation
+                if (splitBeat <= clip.startBeat || splitBeat >= clip.startBeat + clip.lengthBeats) return;
+
+                state._pushUndo();
+
+                const firstLength = splitBeat - clip.startBeat;
+                const secondLength = clip.lengthBeats - firstLength;
+
+                // First part (matches original start, shorter length)
+                const leftClip = {
+                    ...clip,
+                    lengthBeats: firstLength,
+                    // fadeIn/Out logic: keep fadeIn, reset fadeOut? 
+                    // For non-destructive split, we usually want to keep defaults unless user set them.
+                    // If user had a fadeOut on the original clip, it should probably move to the right clip?
+                    // For now, simple split.
+                    fadeOut: 0 // Remove fade out from left part
+                };
+
+                // Second part (starts at split, offset increases)
+                const rightClip = {
+                    ...clip,
+                    id: uid(),
+                    startBeat: splitBeat,
+                    lengthBeats: secondLength,
+                    offset: clip.offset + (firstLength / state.bpm) * 60, // Add time offset
+                    fadeIn: 0, // Remove fade in from right part
+                    fadeOut: clip.fadeOut // Keep original fade out
+                };
+
+                set(s => ({
+                    tracks: s.tracks.map(t => t.id === trackId ? {
+                        ...t,
+                        clips: t.clips.map(c => c.id === clipId ? leftClip : c).concat(rightClip)
+                    } : t)
+                }));
+            },
+
+            reverseClip: (trackId, clipId) => {
+                const state = get();
+                state._pushUndo();
+                set(s => ({
+                    tracks: s.tracks.map(t => t.id === trackId ? {
+                        ...t,
+                        clips: t.clips.map(c => c.id === clipId ? { ...c, isReversed: !c.isReversed } : c)
+                    } : t)
+                }));
+            },
+
+            // MIDI note editing
+            addNote: (trackId, clipId, note) => set((state) => ({
+                tracks: state.tracks.map(t =>
+                    t.id === trackId ? {
+                        ...t,
+                        clips: t.clips.map(c =>
+                            c.id === clipId ? { ...c, notes: [...(c.notes || []), note] } : c
+                        )
+                    } : t
+                )
+            })),
+
+            removeNote: (trackId, clipId, noteId) => set((state) => ({
+                tracks: state.tracks.map(t =>
+                    t.id === trackId ? {
+                        ...t,
+                        clips: t.clips.map(c =>
+                            c.id === clipId ? { ...c, notes: (c.notes || []).filter(n => n.id !== noteId) } : c
+                        )
+                    } : t
+                )
+            })),
+
+            updateNote: (trackId, clipId, noteId, updates) => set((state) => ({
+                tracks: state.tracks.map(t =>
+                    t.id === trackId ? {
+                        ...t,
+                        clips: t.clips.map(c =>
+                            c.id === clipId ? {
+                                ...c,
+                                notes: (c.notes || []).map(n => n.id === noteId ? { ...n, ...updates } : n)
+                            } : c
+                        )
+                    } : t
+                )
+            })),
+
+            // Automation
+            updateTrackAutomation: (trackId, laneIndex, param, points) => set((state) => ({
+                tracks: state.tracks.map(t => {
+                    if (t.id !== trackId) return t;
+                    const lanes = [...(t.automationLanes || [])];
+                    while (lanes.length <= laneIndex) lanes.push({ param: 'volume', points: [] });
+                    lanes[laneIndex] = { param, points };
+                    return { ...t, automationLanes: lanes };
+                })
+            })),
+
+            addAutomationLane: (trackId) => {
+                get()._pushUndo();
+                set((state) => ({
+                    tracks: state.tracks.map(t =>
+                        t.id === trackId
+                            ? { ...t, automationLanes: [...(t.automationLanes || []), { param: 'volume', points: [{ beat: 0, value: 0.75 }, { beat: 32, value: 0.75 }] }] }
+                            : t
+                    )
+                }));
+            },
+
+            removeAutomationLane: (trackId, laneIndex) => {
+                get()._pushUndo();
+                set((state) => ({
+                    tracks: state.tracks.map(t =>
+                        t.id === trackId
+                            ? { ...t, automationLanes: (t.automationLanes || []).filter((_, i) => i !== laneIndex) }
+                            : t
+                    )
+                }));
+            },
+
+            // ─── Track Folders ───
+            addTrackFolder: (name = 'New Folder') => {
+                get()._pushUndo('Add Folder');
+                set(prev => ({
+                    trackFolders: [...prev.trackFolders, { id: uid(), name, color: '#666', trackIds: [], collapsed: false }]
+                }));
+            },
+
+            removeTrackFolder: (folderId) => {
+                get()._pushUndo('Remove Folder');
+                set(prev => ({
+                    trackFolders: prev.trackFolders.filter(f => f.id !== folderId)
+                }));
+            },
+
+            toggleFolderCollapse: (folderId) => {
+                set(prev => ({
+                    trackFolders: prev.trackFolders.map(f =>
+                        f.id === folderId ? { ...f, collapsed: !f.collapsed } : f
+                    )
+                }));
+            },
+
+            addTrackToFolder: (folderId, trackId) => {
+                set(prev => ({
+                    trackFolders: prev.trackFolders.map(f =>
+                        f.id === folderId ? { ...f, trackIds: [...f.trackIds.filter(id => id !== trackId), trackId] } : f
+                    )
+                }));
+            },
+
+            removeTrackFromFolder: (folderId, trackId) => {
+                set(prev => ({
+                    trackFolders: prev.trackFolders.map(f =>
+                        f.id === folderId ? { ...f, trackIds: f.trackIds.filter(id => id !== trackId) } : f
+                    )
+                }));
+            },
+
+            // ─── Glue / Merge Clips ───
+            glueClips: (trackId, clipIds) => {
+                get()._pushUndo('Glue Clips');
+                set(state => {
+                    const track = state.tracks.find(t => t.id === trackId);
+                    if (!track) return state;
+                    const toGlue = track.clips.filter(c => clipIds.includes(c.id)).sort((a, b) => a.startBeat - b.startBeat);
+                    if (toGlue.length < 2) return state;
+                    const first = toGlue[0];
+                    const last = toGlue[toGlue.length - 1];
+                    const merged = {
+                        ...first,
+                        id: uid(),
+                        name: first.name + ' (merged)',
+                        lengthBeats: (last.startBeat + last.lengthBeats) - first.startBeat,
+                    };
+                    return {
+                        tracks: state.tracks.map(t =>
+                            t.id === trackId ? { ...t, clips: [...t.clips.filter(c => !clipIds.includes(c.id)), merged] } : t
+                        )
+                    };
+                });
+            },
+
+            // ─── Duplicate Clip ───
+            duplicateClip: (trackId, clipId) => {
+                get()._pushUndo('Duplicate Clip');
+                set(state => {
+                    const track = state.tracks.find(t => t.id === trackId);
+                    if (!track) return state;
+                    const clip = track.clips.find(c => c.id === clipId);
+                    if (!clip) return state;
+                    const dup = { ...JSON.parse(JSON.stringify(clip)), id: uid(), startBeat: clip.startBeat + clip.lengthBeats };
+                    return {
+                        tracks: state.tracks.map(t =>
+                            t.id === trackId ? { ...t, clips: [...t.clips, dup] } : t
+                        )
+                    };
+                });
+            },
+
+            // ─── Freeze / Flatten ───
+            freezeTrack: (trackId) => {
+                get()._pushUndo('Freeze Track');
+                set(state => ({
+                    tracks: state.tracks.map(t =>
+                        t.id === trackId ? { ...t, frozen: true } : t
+                    )
+                }));
+            },
+
+            unfreezeTrack: (trackId) => {
+                set(state => ({
+                    tracks: state.tracks.map(t =>
+                        t.id === trackId ? { ...t, frozen: false } : t
+                    )
+                }));
+            },
+
+            // ─── Templates ───
+            saveTemplate: (name) => {
+                const state = get();
+                const template = {
+                    name,
+                    bpm: state.bpm,
+                    timeSignature: state.timeSignature,
+                    tracks: state.tracks.map(t => ({ ...t, clips: [] })), // No clip data
+                    trackFolders: state.trackFolders,
+                    savedAt: new Date().toISOString(),
+                };
+                const templates = JSON.parse(localStorage.getItem('orpheus_templates') || '[]');
+                templates.push(template);
+                localStorage.setItem('orpheus_templates', JSON.stringify(templates));
+                return template;
+            },
+
+            loadTemplate: (index) => {
+                const templates = JSON.parse(localStorage.getItem('orpheus_templates') || '[]');
+                if (!templates[index]) return;
+                const tmpl = templates[index];
+                get()._pushUndo('Load Template');
+                set({
+                    bpm: tmpl.bpm,
+                    timeSignature: tmpl.timeSignature,
+                    tracks: tmpl.tracks,
+                    trackFolders: tmpl.trackFolders || [],
+                });
+            },
+
+            getTemplates: () => {
+                return JSON.parse(localStorage.getItem('orpheus_templates') || '[]');
+            },
+
+            deleteTemplate: (index) => {
+                const templates = JSON.parse(localStorage.getItem('orpheus_templates') || '[]');
+                templates.splice(index, 1);
+                localStorage.setItem('orpheus_templates', JSON.stringify(templates));
+            },
+
+            // ─── Auto-Save ───
+            startAutoSave: () => {
+                const timer = setInterval(() => {
+                    const state = get();
+                    if (state.tracks.length > 0) {
+                        state.saveProject();
+                        set({ lastAutoSave: new Date().toISOString() });
+                    }
+                }, 5000);
+                set({ _autoSaveTimer: timer });
+            },
+
+            stopAutoSave: () => {
+                const timer = get()._autoSaveTimer;
+                if (timer) clearInterval(timer);
+                set({ _autoSaveTimer: null });
+            },
+
+            // ─── Slip Editing ───
+            slipEdit: (trackId, clipId, offsetDelta) => {
+                get()._pushUndo('Slip Edit');
+                set(state => ({
+                    tracks: state.tracks.map(t =>
+                        t.id === trackId ? {
+                            ...t,
+                            clips: t.clips.map(c => c.id === clipId ? { ...c, offset: Math.max(0, (c.offset || 0) + offsetDelta) } : c)
+                        } : t
+                    )
+                }));
+            },
+
+            // ─── Project Key/Scale ───
+            setKey: (key) => set({ key }),
+            setScale: (scale) => set({ scale }),
+
+            // Serialization
+            saveProject: () => {
+                const state = get();
+                const data = {
+                    projectName: state.projectName,
+                    bpm: state.bpm,
+                    timeSignature: state.timeSignature,
+                    tracks: state.tracks,
+                    loopStart: state.loopStart,
+                    loopEnd: state.loopEnd,
+                };
+                const json = JSON.stringify(data);
+                localStorage.setItem('orpheus_project', json);
+                return json;
+            },
+
+            loadProject: () => {
+                const json = localStorage.getItem('orpheus_project');
+                if (!json) return false;
+                try {
+                    const data = JSON.parse(json);
+                    set(data);
+                    return true;
+                } catch {
+                    return false;
+                }
+            },
+
+            exportProject: () => {
+                const state = get();
+                const data = {
+                    projectName: state.projectName,
+                    bpm: state.bpm,
+                    timeSignature: state.timeSignature,
+                    tracks: state.tracks.map(t => ({
+                        ...t,
+                        clips: t.clips.map(c => ({
+                            ...c,
+                            waveformData: undefined // Don't export waveform data
+                        }))
+                    })),
+                };
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${state.projectName}.orpheus`;
+                a.click();
+                URL.revokeObjectURL(url);
+            },
+
+            newProject: () => set({
+                projectName: 'Untitled Project',
+                bpm: 120,
+                timeSignature: [4, 4],
+                tracks: [createDefaultTrack(0, 'audio')],
+                playheadPosition: 0,
+                isPlaying: false,
+                isRecording: false,
                 undoStack: [],
                 redoStack: [],
-                isPlaying: false
-            });
-        } catch (err) {
-            console.error(err);
-        } finally {
-            set({ isLoading: false });
-        }
-    },
+            }),
 
-    // ─── Phase 25: Clip Gain Automation ───
-    setClipGainAutomation: (trackId, clipId, points) => {
-        get()._pushUndo('Edit Clip Gain');
-        set(state => ({
-            tracks: state.tracks.map(t =>
-                t.id === trackId ? {
-                    ...t,
-                    clips: t.clips.map(c =>
-                        c.id === clipId ? { ...c, gainAutomation: points } : c
-                    )
-                } : t
-            )
-        }));
-    },
-
-    addClipGainPoint: (trackId, clipId, beatOffset, gain) => {
-        get()._pushUndo('Add Gain Point');
-        set(state => ({
-            tracks: state.tracks.map(t =>
-                t.id === trackId ? {
-                    ...t,
-                    clips: t.clips.map(c => {
-                        if (c.id !== clipId) return c;
-                        const points = [...(c.gainAutomation || []), { beat: beatOffset, value: Math.max(0, Math.min(2, gain)) }];
-                        points.sort((a, b) => a.beat - b.beat);
-                        return { ...c, gainAutomation: points };
-                    })
-                } : t
-            )
-        }));
-    },
-
-    // ─── Normalize Clip (loudness) ───
-    normalizeClip: (trackId, clipId, targetDb = -14) => {
-        get()._pushUndo('Normalize');
-        set(state => ({
-            tracks: state.tracks.map(t =>
-                t.id === trackId ? {
-                    ...t,
-                    clips: t.clips.map(c => {
-                        if (c.id !== clipId) return c;
-                        // Simple gain normalization: adjust gain to reach target loudness
-                        // In a real DAW, this would analyze the buffer for LUFS
-                        const currentGain = c.gain || 1;
-                        const targetGain = Math.pow(10, targetDb / 20);
-                        return { ...c, gain: targetGain, normalized: true, normalizeTarget: targetDb };
-                    })
-                } : t
-            )
-        }));
-    },
-
-    // ─── Batch Processing ───
-    batchProcess: (trackId, clipIds, operation) => {
-        get()._pushUndo(`Batch ${operation}`);
-        set(state => ({
-            tracks: state.tracks.map(t => {
-                if (t.id !== trackId) return t;
-                return {
-                    ...t,
-                    clips: t.clips.map(c => {
-                        if (!clipIds.includes(c.id)) return c;
-                        switch (operation) {
-                            case 'normalize':
-                                return { ...c, gain: Math.pow(10, -14 / 20), normalized: true };
-                            case 'reverse':
-                                return { ...c, reversed: !c.reversed };
-                            case 'fadeIn':
-                                return { ...c, fadeIn: Math.min(c.lengthBeats * 0.25, 2) };
-                            case 'fadeOut':
-                                return { ...c, fadeOut: Math.min(c.lengthBeats * 0.25, 2) };
-                            case 'mute':
-                                return { ...c, muted: !c.muted };
-                            case 'resetGain':
-                                return { ...c, gain: 1, gainAutomation: [] };
-                            default:
-                                return c;
+            // Import project from file
+            importProject: (file) => {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        try {
+                            const data = JSON.parse(e.target.result);
+                            set({
+                                ...data,
+                                isPlaying: false,
+                                isRecording: false,
+                                playheadPosition: 0,
+                                undoStack: [],
+                                redoStack: [],
+                            });
+                            resolve(true);
+                        } catch {
+                            reject(new Error('Invalid project file'));
                         }
-                    })
-                };
-            })
-        }));
-    },
+                    };
+                    reader.onerror = () => reject(new Error('Failed to read file'));
+                    reader.readAsText(file);
+                });
+            },
 
-    // ─── Transient Slicing ───
-    sliceAtTransients: (trackId, clipId, transientBeats) => {
-        get()._pushUndo('Slice at Transients');
-        set(state => ({
-            tracks: state.tracks.map(t => {
-                if (t.id !== trackId) return t;
-                const clip = t.clips.find(c => c.id === clipId);
-                if (!clip || !transientBeats || transientBeats.length === 0) return t;
+            // ─── Cloud Storage ───
+            isSaving: false,
+            isLoading: false,
+            cloudProjects: [],
 
-                // Sort transient positions
-                const sorted = [...transientBeats].sort((a, b) => a - b);
-                const newClips = [];
-                let prevBeat = 0;
+            saveToCloud: async () => {
+                const state = get();
+                set({ isSaving: true });
+                try {
+                    const data = {
+                        name: state.projectName,
+                        data: {
+                            tracks: state.tracks,
+                            bpm: state.bpm,
+                            timeSignature: state.timeSignature,
+                            loopStart: state.loopStart,
+                            loopEnd: state.loopEnd
+                        }
+                    };
 
-                for (const beat of sorted) {
-                    if (beat <= prevBeat || beat >= clip.lengthBeats) continue;
-                    newClips.push({
-                        ...clip,
-                        id: uid(),
-                        startBeat: clip.startBeat + prevBeat,
-                        lengthBeats: beat - prevBeat,
-                        offset: (clip.offset || 0) + prevBeat,
+                    const res = await fetch('/api/projects', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(data)
                     });
-                    prevBeat = beat;
+
+                    if (!res.ok) throw new Error('Failed to save');
+                    const saved = await res.json();
+                    // Refresh list
+                    get().fetchProjects();
+                    return true;
+                } catch (err) {
+                    console.error(err);
+                    return false;
+                } finally {
+                    set({ isSaving: false });
                 }
-                // Last slice
-                if (prevBeat < clip.lengthBeats) {
-                    newClips.push({
-                        ...clip,
-                        id: uid(),
-                        startBeat: clip.startBeat + prevBeat,
-                        lengthBeats: clip.lengthBeats - prevBeat,
-                        offset: (clip.offset || 0) + prevBeat,
+            },
+
+            fetchProjects: async () => {
+                try {
+                    const res = await fetch('/api/projects');
+                    if (res.ok) {
+                        const projects = await res.json();
+                        set({ cloudProjects: projects });
+                    }
+                } catch (err) {
+                    console.error(err);
+                }
+            },
+
+            loadFromCloud: async (id) => {
+                set({ isLoading: true });
+                try {
+                    const res = await fetch(`/api/projects/${id}`);
+                    if (!res.ok) throw new Error('Failed to load');
+                    const project = await res.json();
+                    const data = project.data;
+
+                    set({
+                        projectName: project.name,
+                        tracks: data.tracks,
+                        bpm: data.bpm,
+                        timeSignature: data.timeSignature,
+                        loopStart: data.loopStart,
+                        loopEnd: data.loopEnd,
+                        undoStack: [],
+                        redoStack: [],
+                        isPlaying: false
                     });
+                } catch (err) {
+                    console.error(err);
+                } finally {
+                    set({ isLoading: false });
                 }
+            },
 
-                return {
-                    ...t,
-                    clips: [...t.clips.filter(c => c.id !== clipId), ...newClips]
-                };
-            })
-        }));
-    },
-
-    // ─── Clip Color ───
-    setClipColor: (trackId, clipId, color) => {
-        set(state => ({
-            tracks: state.tracks.map(t =>
-                t.id === trackId ? {
-                    ...t,
-                    clips: t.clips.map(c =>
-                        c.id === clipId ? { ...c, color } : c
+            // ─── Phase 25: Clip Gain Automation ───
+            setClipGainAutomation: (trackId, clipId, points) => {
+                get()._pushUndo('Edit Clip Gain');
+                set(state => ({
+                    tracks: state.tracks.map(t =>
+                        t.id === trackId ? {
+                            ...t,
+                            clips: t.clips.map(c =>
+                                c.id === clipId ? { ...c, gainAutomation: points } : c
+                            )
+                        } : t
                     )
-                } : t
-            )
-        }));
-    },
+                }));
+            },
 
-    // ─── Clip Mute ───
-    toggleClipMute: (trackId, clipId) => {
-        set(state => ({
-            tracks: state.tracks.map(t =>
-                t.id === trackId ? {
-                    ...t,
-                    clips: t.clips.map(c =>
-                        c.id === clipId ? { ...c, muted: !c.muted } : c
+            addClipGainPoint: (trackId, clipId, beatOffset, gain) => {
+                get()._pushUndo('Add Gain Point');
+                set(state => ({
+                    tracks: state.tracks.map(t =>
+                        t.id === trackId ? {
+                            ...t,
+                            clips: t.clips.map(c => {
+                                if (c.id !== clipId) return c;
+                                const points = [...(c.gainAutomation || []), { beat: beatOffset, value: Math.max(0, Math.min(2, gain)) }];
+                                points.sort((a, b) => a.beat - b.beat);
+                                return { ...c, gainAutomation: points };
+                            })
+                        } : t
                     )
-                } : t
-            )
-        }));
-    },
+                }));
+            },
 
-    // ─── Phase 26: Humanize ───
-    humanize: (trackId, clipId, amount = 0.3) => {
-        get()._pushUndo('Humanize');
-        set(state => ({
-            tracks: state.tracks.map(t => {
-                if (t.id !== trackId) return t;
-                return {
-                    ...t,
-                    clips: t.clips.map(c => {
-                        if (c.id !== clipId || !c.notes) return c;
+            // ─── Normalize Clip (loudness) ───
+            normalizeClip: (trackId, clipId, targetDb = -14) => {
+                get()._pushUndo('Normalize');
+                set(state => ({
+                    tracks: state.tracks.map(t =>
+                        t.id === trackId ? {
+                            ...t,
+                            clips: t.clips.map(c => {
+                                if (c.id !== clipId) return c;
+                                // Simple gain normalization: adjust gain to reach target loudness
+                                // In a real DAW, this would analyze the buffer for LUFS
+                                const currentGain = c.gain || 1;
+                                const targetGain = Math.pow(10, targetDb / 20);
+                                return { ...c, gain: targetGain, normalized: true, normalizeTarget: targetDb };
+                            })
+                        } : t
+                    )
+                }));
+            },
+
+            // ─── Batch Processing ───
+            batchProcess: (trackId, clipIds, operation) => {
+                get()._pushUndo(`Batch ${operation}`);
+                set(state => ({
+                    tracks: state.tracks.map(t => {
+                        if (t.id !== trackId) return t;
                         return {
-                            ...c,
-                            notes: c.notes.map(n => ({
-                                ...n,
-                                startBeat: n.startBeat + (Math.random() - 0.5) * amount * 0.25,
-                                velocity: Math.max(1, Math.min(127,
-                                    n.velocity + Math.floor((Math.random() - 0.5) * amount * 30)
-                                )),
-                            })),
+                            ...t,
+                            clips: t.clips.map(c => {
+                                if (!clipIds.includes(c.id)) return c;
+                                switch (operation) {
+                                    case 'normalize':
+                                        return { ...c, gain: Math.pow(10, -14 / 20), normalized: true };
+                                    case 'reverse':
+                                        return { ...c, reversed: !c.reversed };
+                                    case 'fadeIn':
+                                        return { ...c, fadeIn: Math.min(c.lengthBeats * 0.25, 2) };
+                                    case 'fadeOut':
+                                        return { ...c, fadeOut: Math.min(c.lengthBeats * 0.25, 2) };
+                                    case 'mute':
+                                        return { ...c, muted: !c.muted };
+                                    case 'resetGain':
+                                        return { ...c, gain: 1, gainAutomation: [] };
+                                    default:
+                                        return c;
+                                }
+                            })
                         };
                     })
-                };
-            })
-        }));
-    },
+                }));
+            },
 
-    // ─── Randomize Notes ───
-    randomizeNotes: (trackId, clipId, options = {}) => {
-        const { velocityRange = 20, timingRange = 0.1, pitchRange = 0 } = options;
-        get()._pushUndo('Randomize');
-        set(state => ({
-            tracks: state.tracks.map(t => {
-                if (t.id !== trackId) return t;
-                return {
-                    ...t,
-                    clips: t.clips.map(c => {
-                        if (c.id !== clipId || !c.notes) return c;
-                        return {
-                            ...c,
-                            notes: c.notes.map(n => ({
-                                ...n,
-                                velocity: Math.max(1, Math.min(127,
-                                    n.velocity + Math.floor((Math.random() - 0.5) * velocityRange)
-                                )),
-                                startBeat: n.startBeat + (Math.random() - 0.5) * timingRange,
-                                pitch: n.pitch + Math.floor((Math.random() - 0.5) * pitchRange),
-                            })),
-                        };
-                    })
-                };
-            })
-        }));
-    },
+            // ─── Transient Slicing ───
+            sliceAtTransients: (trackId, clipId, transientBeats) => {
+                get()._pushUndo('Slice at Transients');
+                set(state => ({
+                    tracks: state.tracks.map(t => {
+                        if (t.id !== trackId) return t;
+                        const clip = t.clips.find(c => c.id === clipId);
+                        if (!clip || !transientBeats || transientBeats.length === 0) return t;
 
-    // ─── Note Repeat ───
-    noteRepeat: (trackId, clipId, noteId, interval = 0.25, count = 4) => {
-        get()._pushUndo('Note Repeat');
-        set(state => ({
-            tracks: state.tracks.map(t => {
-                if (t.id !== trackId) return t;
-                return {
-                    ...t,
-                    clips: t.clips.map(c => {
-                        if (c.id !== clipId || !c.notes) return c;
-                        const sourceNote = c.notes.find(n => n.id === noteId);
-                        if (!sourceNote) return c;
-                        const newNotes = [];
-                        for (let i = 1; i <= count; i++) {
-                            newNotes.push({
-                                ...sourceNote,
+                        // Sort transient positions
+                        const sorted = [...transientBeats].sort((a, b) => a - b);
+                        const newClips = [];
+                        let prevBeat = 0;
+
+                        for (const beat of sorted) {
+                            if (beat <= prevBeat || beat >= clip.lengthBeats) continue;
+                            newClips.push({
+                                ...clip,
                                 id: uid(),
-                                startBeat: sourceNote.startBeat + interval * i,
+                                startBeat: clip.startBeat + prevBeat,
+                                lengthBeats: beat - prevBeat,
+                                offset: (clip.offset || 0) + prevBeat,
+                            });
+                            prevBeat = beat;
+                        }
+                        // Last slice
+                        if (prevBeat < clip.lengthBeats) {
+                            newClips.push({
+                                ...clip,
+                                id: uid(),
+                                startBeat: clip.startBeat + prevBeat,
+                                lengthBeats: clip.lengthBeats - prevBeat,
+                                offset: (clip.offset || 0) + prevBeat,
                             });
                         }
-                        return { ...c, notes: [...c.notes, ...newNotes] };
-                    })
-                };
-            })
-        }));
-    },
 
-    // ─── Chord Detection ───
-    detectChords: (notes) => {
-        // Basic chord detection from a set of simultaneous notes
-        if (!notes || notes.length < 2) return null;
-        const pitches = notes.map(n => n.pitch % 12).sort((a, b) => a - b);
-        const unique = [...new Set(pitches)];
-        if (unique.length < 2) return null;
-
-        const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-        const root = unique[0];
-        const intervals = unique.slice(1).map(p => (p - root + 12) % 12);
-
-        const chordTypes = {
-            '3,7': 'min',
-            '4,7': 'maj',
-            '3,6': 'dim',
-            '4,8': 'aug',
-            '4,7,11': 'maj7',
-            '4,7,10': '7',
-            '3,7,10': 'min7',
-            '3,6,9': 'dim7',
-            '4,7,9': 'maj6',
-            '3,7,9': 'min6',
-            '2,7': 'sus2',
-            '5,7': 'sus4',
-        };
-
-        const key = intervals.join(',');
-        const type = chordTypes[key] || '';
-        return NOTE_NAMES[root] + type;
-    },
-
-    // ─── Phase 30: Automation Curves ───
-    setAutomationCurve: (trackId, paramId, points) => {
-        get()._pushUndo('Edit Automation');
-        set(state => ({
-            tracks: state.tracks.map(t =>
-                t.id === trackId ? {
-                    ...t,
-                    automation: {
-                        ...t.automation,
-                        [paramId]: points, // Array of { beat, value, curve: 'linear'|'bezier' }
-                    }
-                } : t
-            )
-        }));
-    },
-
-    copyAutomation: (trackId, paramId) => {
-        const state = get();
-        const track = state.tracks.find(t => t.id === trackId);
-        if (!track?.automation?.[paramId]) return null;
-        return JSON.parse(JSON.stringify(track.automation[paramId]));
-    },
-
-    pasteAutomation: (trackId, paramId, points) => {
-        get()._pushUndo('Paste Automation');
-        set(state => ({
-            tracks: state.tracks.map(t =>
-                t.id === trackId ? {
-                    ...t,
-                    automation: { ...t.automation, [paramId]: points }
-                } : t
-            )
-        }));
-    },
-
-    // ─── AI Auto-Level (Phase 30) ───
-    autoLevel: () => {
-        get()._pushUndo('Auto Level');
-        set(state => {
-            // Simple auto-leveling: normalize all track volumes relative to each other
-            const trackCount = state.tracks.filter(t => !t.muted).length;
-            if (trackCount === 0) return state;
-            const targetVolume = 0.7 / Math.sqrt(trackCount);
-            return {
-                tracks: state.tracks.map(t => ({
-                    ...t,
-                    volume: t.muted ? t.volume : targetVolume,
-                }))
-            };
-        });
-    },
-
-    // ─── Export Config (Phase 32) ───
-    setExportConfig: (config) => set({ exportConfig: config }),
-
-    exportStems: () => {
-        // Mark tracks for stem export
-        const state = get();
-        return state.tracks.map(t => ({
-            trackId: t.id,
-            name: t.name,
-            clips: t.clips,
-            volume: t.volume,
-            pan: t.pan,
-        }));
-    },
-
-    // ─── Project Archiving (Phase 32) ───
-    archiveProject: () => {
-        const state = get();
-        return {
-            version: 2,
-            timestamp: new Date().toISOString(),
-            projectName: state.projectName,
-            bpm: state.bpm,
-            timeSignature: state.timeSignature,
-            tracks: JSON.parse(JSON.stringify(state.tracks)),
-            trackFolders: JSON.parse(JSON.stringify(state.trackFolders)),
-            key: state.key,
-            scale: state.scale,
-        };
-    },
-
-    // ─── Version History (Phase 33) ───
-    saveVersion: (label = 'Manual Save') => {
-        const archive = get().archiveProject();
-        const versions = JSON.parse(localStorage.getItem('orpheus_versions') || '[]');
-        versions.push({ label, data: archive, timestamp: archive.timestamp });
-        if (versions.length > 20) versions.shift();
-        localStorage.setItem('orpheus_versions', JSON.stringify(versions));
-    },
-
-    getVersionHistory: () => {
-        return JSON.parse(localStorage.getItem('orpheus_versions') || '[]');
-    },
-
-    restoreVersion: (index) => {
-        const versions = JSON.parse(localStorage.getItem('orpheus_versions') || '[]');
-        if (!versions[index]) return;
-        get()._pushUndo('Restore Version');
-        const data = versions[index].data;
-        set({
-            tracks: data.tracks,
-            trackFolders: data.trackFolders || [],
-            bpm: data.bpm,
-            projectName: data.projectName,
-            key: data.key,
-            scale: data.scale,
-        });
-    },
-
-    // ─── Tempo/Key Changes Mid-Project (Phase 34) ───
-    tempoChanges: [],
-    addTempoChange: (beat, bpm) => {
-        set(state => ({
-            tempoChanges: [...state.tempoChanges, { beat, bpm }].sort((a, b) => a.beat - b.beat)
-        }));
-    },
-
-    keyChanges: [],
-    addKeyChange: (beat, key, scale) => {
-        set(state => ({
-            keyChanges: [...state.keyChanges, { beat, key, scale }].sort((a, b) => a.beat - b.beat)
-        }));
-    },
-
-    // ─── Audio Cleanup ───
-    cleanAudioClip: async (trackId, clipId, options) => {
-        get()._pushUndo('Clean Audio');
-        // AudioCleaner runs on the buffer data in the AudioBufferManager
-        // For now, mark the clip as cleaned with the options used
-        const stats = { popsRemoved: 0, cracklesFixed: 0, artifactsSmoothed: 0, dcCorrected: false };
-        set(state => ({
-            tracks: state.tracks.map(t =>
-                t.id === trackId ? {
-                    ...t,
-                    clips: t.clips.map(c =>
-                        c.id === clipId ? {
-                            ...c,
-                            cleaned: true,
-                            cleanOptions: options,
-                            cleanedAt: new Date().toISOString(),
-                        } : c
-                    )
-                } : t
-            )
-        }));
-        return stats;
-    },
-
-    // ─── Audio-to-MIDI (single clip) ───
-    convertToMidi: async (trackId, clipId, options) => {
-        get()._pushUndo('Convert to MIDI');
-        const state = get();
-        const track = state.tracks.find(t => t.id === trackId);
-        const clip = track?.clips?.find(c => c.id === clipId);
-        if (!clip) throw new Error('Clip not found');
-
-        // Create a new MIDI track with detected notes
-        const newTrackId = 'midi_' + Date.now();
-        const result = { tracks: [{ name: `${track.name} → MIDI`, notes: [] }] };
-
-        set(prev => ({
-            tracks: [...prev.tracks, {
-                id: newTrackId,
-                name: `${track.name} → MIDI`,
-                type: 'midi',
-                volume: 0.8,
-                pan: 0,
-                muted: false,
-                solo: false,
-                color: '#45B7D1',
-                clips: [{
-                    id: 'mclip_' + Date.now(),
-                    startBeat: clip.startBeat || 0,
-                    lengthBeats: clip.lengthBeats || 4,
-                    notes: result.tracks[0].notes,
-                    type: 'midi',
-                    name: `${clip.name || 'Audio'} (MIDI)`,
-                    sourceClipId: clipId,
-                }],
-            }]
-        }));
-
-        return result;
-    },
-
-    // ─── Audio-to-MIDI (full track with stem separation) ───
-    convertTrackToMidi: async (trackId, options) => {
-        get()._pushUndo('Convert Track to MIDI (Stems)');
-        const state = get();
-        const track = state.tracks.find(t => t.id === trackId);
-        if (!track) throw new Error('Track not found');
-
-        const stemNames = ['Bass', 'Keys/Lead', 'Percussion/High'];
-        const stemColors = ['#FF6B6B', '#4ECDC4', '#FFEAA7'];
-        const newTracks = stemNames.map((name, i) => ({
-            id: `stem_midi_${Date.now()}_${i}`,
-            name: `${track.name} → ${name}`,
-            type: 'midi',
-            volume: 0.8,
-            pan: 0,
-            muted: false,
-            solo: false,
-            color: stemColors[i],
-            clips: [],
-        }));
-
-        // Add vocal isolation track
-        newTracks.push({
-            id: `vocal_${Date.now()}`,
-            name: `${track.name} → Vocals`,
-            type: 'audio',
-            volume: 0.8,
-            pan: 0,
-            muted: false,
-            solo: false,
-            color: '#DDA0DD',
-            clips: [],
-        });
-
-        set(prev => ({ tracks: [...prev.tracks, ...newTracks] }));
-
-        return {
-            tracks: stemNames.map(name => ({ name, notes: [] })),
-            vocalBuffer: null,
-        };
-    },
-
-    // ─── Timeline Length ───
-    timelineLength: 64, // Default: 16 bars of 4/4
-
-    setTimelineLength: (totalBeats) => {
-        set({ timelineLength: Math.max(4, totalBeats) });
-    },
-
-    stretchTimeline: (factor) => {
-        get()._pushUndo('Stretch Timeline');
-        set(state => ({
-            tracks: state.tracks.map(t => ({
-                ...t,
-                clips: t.clips.map(c => ({
-                    ...c,
-                    startBeat: (c.startBeat || 0) * factor,
-                    lengthBeats: (c.lengthBeats || 1) * factor,
-                    notes: c.notes?.map(n => ({
-                        ...n,
-                        startBeat: n.startBeat * factor,
-                        lengthBeats: n.lengthBeats * factor,
-                    })),
-                }))
-            })),
-            timelineLength: Math.ceil((state.timelineLength || 64) * factor),
-        }));
-    },
-
-    trimTimeline: (startBeat, endBeat) => {
-        get()._pushUndo('Trim Timeline');
-        set(state => ({
-            tracks: state.tracks.map(t => ({
-                ...t,
-                clips: t.clips
-                    .filter(c => {
-                        const clipEnd = (c.startBeat || 0) + (c.lengthBeats || 0);
-                        return clipEnd > startBeat && (c.startBeat || 0) < endBeat;
-                    })
-                    .map(c => ({
-                        ...c,
-                        startBeat: Math.max(0, (c.startBeat || 0) - startBeat),
-                    }))
-            })),
-            timelineLength: endBeat - startBeat,
-        }));
-    },
-
-    // ─── Track Extend ───
-    extendTrack: (trackId, clipId, targetBars) => {
-        get()._pushUndo('Extend Track');
-        const state = get();
-        const beatsPerBar = (state.timeSignature?.[0] || 4);
-        const extensionBeats = targetBars * beatsPerBar;
-
-        set(prev => ({
-            tracks: prev.tracks.map(t => {
-                if (t.id !== trackId) return t;
-                return {
-                    ...t,
-                    clips: t.clips.map(c => {
-                        if (c.id !== clipId) return c;
                         return {
-                            ...c,
-                            lengthBeats: (c.lengthBeats || 4) + extensionBeats,
-                            extended: true,
-                            extendedBars: targetBars,
+                            ...t,
+                            clips: [...t.clips.filter(c => c.id !== clipId), ...newClips]
                         };
                     })
+                }));
+            },
+
+            // ─── Clip Color ───
+            setClipColor: (trackId, clipId, color) => {
+                set(state => ({
+                    tracks: state.tracks.map(t =>
+                        t.id === trackId ? {
+                            ...t,
+                            clips: t.clips.map(c =>
+                                c.id === clipId ? { ...c, color } : c
+                            )
+                        } : t
+                    )
+                }));
+            },
+
+            // ─── Clip Mute ───
+            toggleClipMute: (trackId, clipId) => {
+                set(state => ({
+                    tracks: state.tracks.map(t =>
+                        t.id === trackId ? {
+                            ...t,
+                            clips: t.clips.map(c =>
+                                c.id === clipId ? { ...c, muted: !c.muted } : c
+                            )
+                        } : t
+                    )
+                }));
+            },
+
+            // ─── Phase 26: Humanize ───
+            humanize: (trackId, clipId, amount = 0.3) => {
+                get()._pushUndo('Humanize');
+                set(state => ({
+                    tracks: state.tracks.map(t => {
+                        if (t.id !== trackId) return t;
+                        return {
+                            ...t,
+                            clips: t.clips.map(c => {
+                                if (c.id !== clipId || !c.notes) return c;
+                                return {
+                                    ...c,
+                                    notes: c.notes.map(n => ({
+                                        ...n,
+                                        startBeat: n.startBeat + (Math.random() - 0.5) * amount * 0.25,
+                                        velocity: Math.max(1, Math.min(127,
+                                            n.velocity + Math.floor((Math.random() - 0.5) * amount * 30)
+                                        )),
+                                    })),
+                                };
+                            })
+                        };
+                    })
+                }));
+            },
+
+            // ─── Randomize Notes ───
+            randomizeNotes: (trackId, clipId, options = {}) => {
+                const { velocityRange = 20, timingRange = 0.1, pitchRange = 0 } = options;
+                get()._pushUndo('Randomize');
+                set(state => ({
+                    tracks: state.tracks.map(t => {
+                        if (t.id !== trackId) return t;
+                        return {
+                            ...t,
+                            clips: t.clips.map(c => {
+                                if (c.id !== clipId || !c.notes) return c;
+                                return {
+                                    ...c,
+                                    notes: c.notes.map(n => ({
+                                        ...n,
+                                        velocity: Math.max(1, Math.min(127,
+                                            n.velocity + Math.floor((Math.random() - 0.5) * velocityRange)
+                                        )),
+                                        startBeat: n.startBeat + (Math.random() - 0.5) * timingRange,
+                                        pitch: n.pitch + Math.floor((Math.random() - 0.5) * pitchRange),
+                                    })),
+                                };
+                            })
+                        };
+                    })
+                }));
+            },
+
+            // ─── Note Repeat ───
+            noteRepeat: (trackId, clipId, noteId, interval = 0.25, count = 4) => {
+                get()._pushUndo('Note Repeat');
+                set(state => ({
+                    tracks: state.tracks.map(t => {
+                        if (t.id !== trackId) return t;
+                        return {
+                            ...t,
+                            clips: t.clips.map(c => {
+                                if (c.id !== clipId || !c.notes) return c;
+                                const sourceNote = c.notes.find(n => n.id === noteId);
+                                if (!sourceNote) return c;
+                                const newNotes = [];
+                                for (let i = 1; i <= count; i++) {
+                                    newNotes.push({
+                                        ...sourceNote,
+                                        id: uid(),
+                                        startBeat: sourceNote.startBeat + interval * i,
+                                    });
+                                }
+                                return { ...c, notes: [...c.notes, ...newNotes] };
+                            })
+                        };
+                    })
+                }));
+            },
+
+            // ─── Chord Detection ───
+            detectChords: (notes) => {
+                // Basic chord detection from a set of simultaneous notes
+                if (!notes || notes.length < 2) return null;
+                const pitches = notes.map(n => n.pitch % 12).sort((a, b) => a - b);
+                const unique = [...new Set(pitches)];
+                if (unique.length < 2) return null;
+
+                const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+                const root = unique[0];
+                const intervals = unique.slice(1).map(p => (p - root + 12) % 12);
+
+                const chordTypes = {
+                    '3,7': 'min',
+                    '4,7': 'maj',
+                    '3,6': 'dim',
+                    '4,8': 'aug',
+                    '4,7,11': 'maj7',
+                    '4,7,10': '7',
+                    '3,7,10': 'min7',
+                    '3,6,9': 'dim7',
+                    '4,7,9': 'maj6',
+                    '3,7,9': 'min6',
+                    '2,7': 'sus2',
+                    '5,7': 'sus4',
                 };
-            })
-        }));
-    },
-}));
+
+                const key = intervals.join(',');
+                const type = chordTypes[key] || '';
+                return NOTE_NAMES[root] + type;
+            },
+
+            // ─── Phase 30: Automation Curves ───
+            setAutomationCurve: (trackId, paramId, points) => {
+                get()._pushUndo('Edit Automation');
+                set(state => ({
+                    tracks: state.tracks.map(t =>
+                        t.id === trackId ? {
+                            ...t,
+                            automation: {
+                                ...t.automation,
+                                [paramId]: points, // Array of { beat, value, curve: 'linear'|'bezier' }
+                            }
+                        } : t
+                    )
+                }));
+            },
+
+            copyAutomation: (trackId, paramId) => {
+                const state = get();
+                const track = state.tracks.find(t => t.id === trackId);
+                if (!track?.automation?.[paramId]) return null;
+                return JSON.parse(JSON.stringify(track.automation[paramId]));
+            },
+
+            pasteAutomation: (trackId, paramId, points) => {
+                get()._pushUndo('Paste Automation');
+                set(state => ({
+                    tracks: state.tracks.map(t =>
+                        t.id === trackId ? {
+                            ...t,
+                            automation: { ...t.automation, [paramId]: points }
+                        } : t
+                    )
+                }));
+            },
+
+            // ─── AI Auto-Level (Phase 30) ───
+            autoLevel: () => {
+                get()._pushUndo('Auto Level');
+                set(state => {
+                    // Simple auto-leveling: normalize all track volumes relative to each other
+                    const trackCount = state.tracks.filter(t => !t.muted).length;
+                    if (trackCount === 0) return state;
+                    const targetVolume = 0.7 / Math.sqrt(trackCount);
+                    return {
+                        tracks: state.tracks.map(t => ({
+                            ...t,
+                            volume: t.muted ? t.volume : targetVolume,
+                        }))
+                    };
+                });
+            },
+
+            // ─── Export Config (Phase 32) ───
+            setExportConfig: (config) => set({ exportConfig: config }),
+
+            exportStems: () => {
+                // Mark tracks for stem export
+                const state = get();
+                return state.tracks.map(t => ({
+                    trackId: t.id,
+                    name: t.name,
+                    clips: t.clips,
+                    volume: t.volume,
+                    pan: t.pan,
+                }));
+            },
+
+            // ─── Project Archiving (Phase 32) ───
+            archiveProject: () => {
+                const state = get();
+                return {
+                    version: 2,
+                    timestamp: new Date().toISOString(),
+                    projectName: state.projectName,
+                    bpm: state.bpm,
+                    timeSignature: state.timeSignature,
+                    tracks: JSON.parse(JSON.stringify(state.tracks)),
+                    trackFolders: JSON.parse(JSON.stringify(state.trackFolders)),
+                    key: state.key,
+                    scale: state.scale,
+                };
+            },
+
+            // ─── Version History (Phase 33) ───
+            saveVersion: (label = 'Manual Save') => {
+                const archive = get().archiveProject();
+                const versions = JSON.parse(localStorage.getItem('orpheus_versions') || '[]');
+                versions.push({ label, data: archive, timestamp: archive.timestamp });
+                if (versions.length > 20) versions.shift();
+                localStorage.setItem('orpheus_versions', JSON.stringify(versions));
+            },
+
+            getVersionHistory: () => {
+                return JSON.parse(localStorage.getItem('orpheus_versions') || '[]');
+            },
+
+            restoreVersion: (index) => {
+                const versions = JSON.parse(localStorage.getItem('orpheus_versions') || '[]');
+                if (!versions[index]) return;
+                get()._pushUndo('Restore Version');
+                const data = versions[index].data;
+                set({
+                    tracks: data.tracks,
+                    trackFolders: data.trackFolders || [],
+                    bpm: data.bpm,
+                    projectName: data.projectName,
+                    key: data.key,
+                    scale: data.scale,
+                });
+            },
+
+            // ─── Tempo/Key Changes Mid-Project (Phase 34) ───
+            tempoChanges: [],
+            addTempoChange: (beat, bpm) => {
+                set(state => ({
+                    tempoChanges: [...state.tempoChanges, { beat, bpm }].sort((a, b) => a.beat - b.beat)
+                }));
+            },
+
+            keyChanges: [],
+            addKeyChange: (beat, key, scale) => {
+                set(state => ({
+                    keyChanges: [...state.keyChanges, { beat, key, scale }].sort((a, b) => a.beat - b.beat)
+                }));
+            },
+
+            // ─── Audio Cleanup ───
+            cleanAudioClip: async (trackId, clipId, options) => {
+                get()._pushUndo('Clean Audio');
+                // AudioCleaner runs on the buffer data in the AudioBufferManager
+                // For now, mark the clip as cleaned with the options used
+                const stats = { popsRemoved: 0, cracklesFixed: 0, artifactsSmoothed: 0, dcCorrected: false };
+                set(state => ({
+                    tracks: state.tracks.map(t =>
+                        t.id === trackId ? {
+                            ...t,
+                            clips: t.clips.map(c =>
+                                c.id === clipId ? {
+                                    ...c,
+                                    cleaned: true,
+                                    cleanOptions: options,
+                                    cleanedAt: new Date().toISOString(),
+                                } : c
+                            )
+                        } : t
+                    )
+                }));
+                return stats;
+            },
+
+            // ─── Audio-to-MIDI (single clip) ───
+            convertToMidi: async (trackId, clipId, options) => {
+                get()._pushUndo('Convert to MIDI');
+                const state = get();
+                const track = state.tracks.find(t => t.id === trackId);
+                const clip = track?.clips?.find(c => c.id === clipId);
+                if (!clip) throw new Error('Clip not found');
+
+                // Create a new MIDI track with detected notes
+                const newTrackId = 'midi_' + Date.now();
+                const result = { tracks: [{ name: `${track.name} → MIDI`, notes: [] }] };
+
+                set(prev => ({
+                    tracks: [...prev.tracks, {
+                        id: newTrackId,
+                        name: `${track.name} → MIDI`,
+                        type: 'midi',
+                        volume: 0.8,
+                        pan: 0,
+                        muted: false,
+                        solo: false,
+                        color: '#45B7D1',
+                        clips: [{
+                            id: 'mclip_' + Date.now(),
+                            startBeat: clip.startBeat || 0,
+                            lengthBeats: clip.lengthBeats || 4,
+                            notes: result.tracks[0].notes,
+                            type: 'midi',
+                            name: `${clip.name || 'Audio'} (MIDI)`,
+                            sourceClipId: clipId,
+                        }],
+                    }]
+                }));
+
+                return result;
+            },
+
+            // ─── Audio-to-MIDI (full track with stem separation) ───
+            convertTrackToMidi: async (trackId, options) => {
+                get()._pushUndo('Convert Track to MIDI (Stems)');
+                const state = get();
+                const track = state.tracks.find(t => t.id === trackId);
+                if (!track) throw new Error('Track not found');
+
+                const stemNames = ['Bass', 'Keys/Lead', 'Percussion/High'];
+                const stemColors = ['#FF6B6B', '#4ECDC4', '#FFEAA7'];
+                const newTracks = stemNames.map((name, i) => ({
+                    id: `stem_midi_${Date.now()}_${i}`,
+                    name: `${track.name} → ${name}`,
+                    type: 'midi',
+                    volume: 0.8,
+                    pan: 0,
+                    muted: false,
+                    solo: false,
+                    color: stemColors[i],
+                    clips: [],
+                }));
+
+                // Add vocal isolation track
+                newTracks.push({
+                    id: `vocal_${Date.now()}`,
+                    name: `${track.name} → Vocals`,
+                    type: 'audio',
+                    volume: 0.8,
+                    pan: 0,
+                    muted: false,
+                    solo: false,
+                    color: '#DDA0DD',
+                    clips: [],
+                });
+
+                set(prev => ({ tracks: [...prev.tracks, ...newTracks] }));
+
+                return {
+                    tracks: stemNames.map(name => ({ name, notes: [] })),
+                    vocalBuffer: null,
+                };
+            },
+
+            // ─── Timeline Length ───
+            timelineLength: 64, // Default: 16 bars of 4/4
+
+            setTimelineLength: (totalBeats) => {
+                set({ timelineLength: Math.max(4, totalBeats) });
+            },
+
+            stretchTimeline: (factor) => {
+                get()._pushUndo('Stretch Timeline');
+                set(state => ({
+                    tracks: state.tracks.map(t => ({
+                        ...t,
+                        clips: t.clips.map(c => ({
+                            ...c,
+                            startBeat: (c.startBeat || 0) * factor,
+                            lengthBeats: (c.lengthBeats || 1) * factor,
+                            notes: c.notes?.map(n => ({
+                                ...n,
+                                startBeat: n.startBeat * factor,
+                                lengthBeats: n.lengthBeats * factor,
+                            })),
+                        }))
+                    })),
+                    timelineLength: Math.ceil((state.timelineLength || 64) * factor),
+                }));
+            },
+
+            trimTimeline: (startBeat, endBeat) => {
+                get()._pushUndo('Trim Timeline');
+                set(state => ({
+                    tracks: state.tracks.map(t => ({
+                        ...t,
+                        clips: t.clips
+                            .filter(c => {
+                                const clipEnd = (c.startBeat || 0) + (c.lengthBeats || 0);
+                                return clipEnd > startBeat && (c.startBeat || 0) < endBeat;
+                            })
+                            .map(c => ({
+                                ...c,
+                                startBeat: Math.max(0, (c.startBeat || 0) - startBeat),
+                            }))
+                    })),
+                    timelineLength: endBeat - startBeat,
+                }));
+            },
+
+            // ─── Track Extend ───
+            extendTrack: (trackId, clipId, targetBars) => {
+                get()._pushUndo('Extend Track');
+                const state = get();
+                const beatsPerBar = (state.timeSignature?.[0] || 4);
+                const extensionBeats = targetBars * beatsPerBar;
+
+                set(prev => ({
+                    tracks: prev.tracks.map(t => {
+                        if (t.id !== trackId) return t;
+                        return {
+                            ...t,
+                            clips: t.clips.map(c => {
+                                if (c.id !== clipId) return c;
+                                return {
+                                    ...c,
+                                    lengthBeats: (c.lengthBeats || 4) + extensionBeats,
+                                    extended: true,
+                                    extendedBars: targetBars,
+                                };
+                            })
+                        };
+                    })
+                }));
+            },
+        }),
+        {
+            name: 'orpheus-project',
+            version: 1,
+            partialize: (state) => {
+                // Exclude transient/non-serializable state
+                const { undoStack, redoStack, undoLabels, _autoSaveTimer, _maxHistory, ...persistable } = state;
+                return persistable;
+            },
+        }
+    )
+);
