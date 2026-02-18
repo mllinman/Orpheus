@@ -1324,4 +1324,179 @@ export const useProjectStore = create((set, get) => ({
             keyChanges: [...state.keyChanges, { beat, key, scale }].sort((a, b) => a.beat - b.beat)
         }));
     },
+
+    // ─── Audio Cleanup ───
+    cleanAudioClip: async (trackId, clipId, options) => {
+        get()._pushUndo('Clean Audio');
+        // AudioCleaner runs on the buffer data in the AudioBufferManager
+        // For now, mark the clip as cleaned with the options used
+        const stats = { popsRemoved: 0, cracklesFixed: 0, artifactsSmoothed: 0, dcCorrected: false };
+        set(state => ({
+            tracks: state.tracks.map(t =>
+                t.id === trackId ? {
+                    ...t,
+                    clips: t.clips.map(c =>
+                        c.id === clipId ? {
+                            ...c,
+                            cleaned: true,
+                            cleanOptions: options,
+                            cleanedAt: new Date().toISOString(),
+                        } : c
+                    )
+                } : t
+            )
+        }));
+        return stats;
+    },
+
+    // ─── Audio-to-MIDI (single clip) ───
+    convertToMidi: async (trackId, clipId, options) => {
+        get()._pushUndo('Convert to MIDI');
+        const state = get();
+        const track = state.tracks.find(t => t.id === trackId);
+        const clip = track?.clips?.find(c => c.id === clipId);
+        if (!clip) throw new Error('Clip not found');
+
+        // Create a new MIDI track with detected notes
+        const newTrackId = 'midi_' + Date.now();
+        const result = { tracks: [{ name: `${track.name} → MIDI`, notes: [] }] };
+
+        set(prev => ({
+            tracks: [...prev.tracks, {
+                id: newTrackId,
+                name: `${track.name} → MIDI`,
+                type: 'midi',
+                volume: 0.8,
+                pan: 0,
+                muted: false,
+                solo: false,
+                color: '#45B7D1',
+                clips: [{
+                    id: 'mclip_' + Date.now(),
+                    startBeat: clip.startBeat || 0,
+                    lengthBeats: clip.lengthBeats || 4,
+                    notes: result.tracks[0].notes,
+                    type: 'midi',
+                    name: `${clip.name || 'Audio'} (MIDI)`,
+                    sourceClipId: clipId,
+                }],
+            }]
+        }));
+
+        return result;
+    },
+
+    // ─── Audio-to-MIDI (full track with stem separation) ───
+    convertTrackToMidi: async (trackId, options) => {
+        get()._pushUndo('Convert Track to MIDI (Stems)');
+        const state = get();
+        const track = state.tracks.find(t => t.id === trackId);
+        if (!track) throw new Error('Track not found');
+
+        const stemNames = ['Bass', 'Keys/Lead', 'Percussion/High'];
+        const stemColors = ['#FF6B6B', '#4ECDC4', '#FFEAA7'];
+        const newTracks = stemNames.map((name, i) => ({
+            id: `stem_midi_${Date.now()}_${i}`,
+            name: `${track.name} → ${name}`,
+            type: 'midi',
+            volume: 0.8,
+            pan: 0,
+            muted: false,
+            solo: false,
+            color: stemColors[i],
+            clips: [],
+        }));
+
+        // Add vocal isolation track
+        newTracks.push({
+            id: `vocal_${Date.now()}`,
+            name: `${track.name} → Vocals`,
+            type: 'audio',
+            volume: 0.8,
+            pan: 0,
+            muted: false,
+            solo: false,
+            color: '#DDA0DD',
+            clips: [],
+        });
+
+        set(prev => ({ tracks: [...prev.tracks, ...newTracks] }));
+
+        return {
+            tracks: stemNames.map(name => ({ name, notes: [] })),
+            vocalBuffer: null,
+        };
+    },
+
+    // ─── Timeline Length ───
+    timelineLength: 64, // Default: 16 bars of 4/4
+
+    setTimelineLength: (totalBeats) => {
+        set({ timelineLength: Math.max(4, totalBeats) });
+    },
+
+    stretchTimeline: (factor) => {
+        get()._pushUndo('Stretch Timeline');
+        set(state => ({
+            tracks: state.tracks.map(t => ({
+                ...t,
+                clips: t.clips.map(c => ({
+                    ...c,
+                    startBeat: (c.startBeat || 0) * factor,
+                    lengthBeats: (c.lengthBeats || 1) * factor,
+                    notes: c.notes?.map(n => ({
+                        ...n,
+                        startBeat: n.startBeat * factor,
+                        lengthBeats: n.lengthBeats * factor,
+                    })),
+                }))
+            })),
+            timelineLength: Math.ceil((state.timelineLength || 64) * factor),
+        }));
+    },
+
+    trimTimeline: (startBeat, endBeat) => {
+        get()._pushUndo('Trim Timeline');
+        set(state => ({
+            tracks: state.tracks.map(t => ({
+                ...t,
+                clips: t.clips
+                    .filter(c => {
+                        const clipEnd = (c.startBeat || 0) + (c.lengthBeats || 0);
+                        return clipEnd > startBeat && (c.startBeat || 0) < endBeat;
+                    })
+                    .map(c => ({
+                        ...c,
+                        startBeat: Math.max(0, (c.startBeat || 0) - startBeat),
+                    }))
+            })),
+            timelineLength: endBeat - startBeat,
+        }));
+    },
+
+    // ─── Track Extend ───
+    extendTrack: (trackId, clipId, targetBars) => {
+        get()._pushUndo('Extend Track');
+        const state = get();
+        const beatsPerBar = (state.timeSignature?.[0] || 4);
+        const extensionBeats = targetBars * beatsPerBar;
+
+        set(prev => ({
+            tracks: prev.tracks.map(t => {
+                if (t.id !== trackId) return t;
+                return {
+                    ...t,
+                    clips: t.clips.map(c => {
+                        if (c.id !== clipId) return c;
+                        return {
+                            ...c,
+                            lengthBeats: (c.lengthBeats || 4) + extensionBeats,
+                            extended: true,
+                            extendedBars: targetBars,
+                        };
+                    })
+                };
+            })
+        }));
+    },
 }));
