@@ -3,7 +3,7 @@ import { useProjectStore } from '../../stores/projectStore';
 import { useUIStore } from '../../stores/uiStore';
 import { TRACK_COLORS } from '../../utils/helpers';
 
-export default function TrackHeader({ track, height }) {
+export default function TrackHeader({ track, index, height }) {
   const { toggleMute, toggleSolo, toggleArmed, setTrackVolume, setTrackPan, removeTrack, duplicateTrack, renameTrack, setTrackColor } = useProjectStore();
   const { selectedTrackId, setSelectedTrack } = useUIStore();
   const isSelected = selectedTrackId === track.id;
@@ -28,6 +28,30 @@ export default function TrackHeader({ track, height }) {
     setEditing(false);
   };
 
+  const handleDragStart = (e) => {
+    e.dataTransfer.setData('application/orpheus-track-index', index);
+    e.dataTransfer.effectAllowed = 'move';
+    // Create a drag image? Browser default is usually fine for row dragging
+  };
+
+  const handleDragOver = (e) => {
+    if (e.dataTransfer.types.includes('application/orpheus-track-index')) {
+      e.preventDefault(); // Allow drop
+      e.dataTransfer.dropEffect = 'move';
+    }
+  };
+
+  const handleDrop = (e) => {
+    const fromIndexStr = e.dataTransfer.getData('application/orpheus-track-index');
+    if (fromIndexStr) {
+      e.preventDefault();
+      const fromIndex = parseInt(fromIndexStr, 10);
+      if (fromIndex !== index) {
+        useProjectStore.getState().moveTrack(fromIndex, index);
+      }
+    }
+  };
+
   const handleContextMenu = (e) => {
     e.preventDefault();
     const { showContextMenu } = useUIStore.getState();
@@ -43,6 +67,10 @@ export default function TrackHeader({ track, height }) {
   return (
     <div
       className={`track-header ${isSelected ? 'selected' : ''}`}
+      draggable
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
       style={{
         height,
         borderLeft: `3px solid ${track.color}`,

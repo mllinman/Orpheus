@@ -25,15 +25,58 @@ export default function ArrangementView() {
     }
   }, []);
 
-  // Handle zoom with mouse wheel
+  // Handle zoom and scrolling with mouse wheel
   const handleWheel = useCallback((e) => {
+    // Ctrl/Cmd + Wheel = Zoom
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
+      // If Shift also pressed, maybe vertical zoom? For now just horizontal
       const { zoomIn, zoomOut } = useUIStore.getState();
       if (e.deltaY < 0) zoomIn();
       else zoomOut();
+      return;
     }
+
+    // Shift + Wheel = Horizontal Scroll
+    if (e.shiftKey) {
+      e.preventDefault();
+      if (scrollRef.current) {
+        scrollRef.current.scrollLeft += e.deltaY;
+      }
+      return;
+    }
+
+    // Default Vertical Scroll (native behavior)
   }, []);
+
+  // Pan Tool (Middle Click or Space+Drag)
+  const [isPanning, setIsPanning] = useState(false);
+  const lastMousePos = useRef({ x: 0, y: 0 });
+
+  const handleMouseDown = (e) => {
+    // Middle mouse button (1)
+    if (e.button === 1) {
+      e.preventDefault();
+      setIsPanning(true);
+      lastMousePos.current = { x: e.clientX, y: e.clientY };
+    }
+  };
+
+  const handleMouseMove = (e) => {
+    if (isPanning && scrollRef.current) {
+      const dx = e.clientX - lastMousePos.current.x;
+      const dy = e.clientY - lastMousePos.current.y;
+      
+      scrollRef.current.scrollLeft -= dx;
+      scrollRef.current.scrollTop -= dy;
+      
+      lastMousePos.current = { x: e.clientX, y: e.clientY };
+    }
+  };
+
+  const handleMouseUp = () => {
+    setIsPanning(false);
+  };
 
   // Handle drop of stems
   const handleDrop = useCallback((e) => {
@@ -66,9 +109,12 @@ export default function ArrangementView() {
 
   // Handle click on background to move playhead
   const handleBackgroundClick = (e) => {
-    // Ignore if clicking a child element (like a clip)
-    if (e.target.closest('.audio-clip') || e.target.closest('.automation-point')) return;
+    // Ignore if clicking a child element (like a clip) or if panning
+    if (isPanning || e.target.closest('.audio-clip') || e.target.closest('.automation-point')) return;
     
+    // Only set playhead if clicking on the timeline area (not headers)
+    if (e.target.closest('.arrangement-headers')) return;
+
     const rect = e.currentTarget.getBoundingClientRect();
     const scrollLeft = e.currentTarget.scrollLeft;
     const x = e.clientX - rect.left + scrollLeft;
@@ -85,8 +131,13 @@ export default function ArrangementView() {
     <div 
       className="arrangement-view" 
       onWheel={handleWheel}
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseUp}
       onDragOver={(e) => e.preventDefault()}
       onDrop={handleDrop}
+      style={{ cursor: isPanning ? 'grabbing' : 'auto' }}
     >
       {/* Track Headers Column */}
       <div className="arrangement-headers" style={{ width: trackHeaderWidth }}>
@@ -94,8 +145,8 @@ export default function ArrangementView() {
           <span className="text-muted" style={{ fontSize: 'var(--text-xs)' }}>TRACKS</span>
         </div>
         <div className="arrangement-headers-scroll" ref={headerScrollRef}>
-          {tracks.map(track => (
-            <TrackHeader key={track.id} track={track} height={trackHeight} />
+          {tracks.map((track, index) => (
+            <TrackHeader key={track.id} track={track} index={index} height={trackHeight} />
           ))}
           <AddTrackButton />
         </div>

@@ -254,6 +254,29 @@ export default function ClipEditorPanel({ trackId, clipId, onClose }) {
           </div>
         </div>
 
+        {/* Extensions */}
+        {clip.type === 'audio' && (
+          <div className="cep-section">
+            <div className="cep-section-title">✨ AI Extensions</div>
+            <div className="cep-split-row">
+              <button 
+                className="btn btn-sm btn-ghost"
+                onClick={() => useProjectStore.getState().extendTrack(trackId, clipId, Math.ceil(clip.lengthBeats / 4) * 2)}
+                title="Smartly extend clip to 2x duration using pattern matching"
+              >
+                ↻ Extend 2x
+              </button>
+              <button 
+                className="btn btn-sm btn-ghost"
+                onClick={() => useProjectStore.getState().extendTrack(trackId, clipId, Math.ceil(clip.lengthBeats / 4) * 4)}
+                title="Smartly extend clip to 4x duration using pattern matching"
+              >
+                ↻ Extend 4x
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Actions */}
         <div className="cep-actions">
           <button className="btn btn-primary btn-sm" onClick={handleApplyFades}>

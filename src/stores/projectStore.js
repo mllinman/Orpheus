@@ -6,6 +6,12 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { uid, getTrackColor, generateWaveformData } from '../utils/helpers';
 import { useUIStore } from './uiStore';
+import { TrackExtender } from '../audio/TrackExtender';
+import { audioBufferManager } from '../audio/AudioBufferManager';
+import { CloudService } from '../utils/CloudService';
+import { AudioCleaner } from '../audio/AudioCleaner';
+import { AudioToMidi } from '../audio/AudioToMidi';
+import { audioEngine } from '../audio/AudioEngine';
 
 const createDefaultTrack = (index, type = 'audio', name) => ({
     id: uid(),
@@ -303,6 +309,16 @@ export const useProjectStore = create(
             setTrackAutotune: (trackId, params) => set((state) => ({
                 tracks: state.tracks.map(t => t.id === trackId ? { ...t, autotune: { ...t.autotune, ...params } } : t)
             })),
+
+            moveTrack: (fromIndex, toIndex) => {
+                set((state) => {
+                    if (fromIndex < 0 || fromIndex >= state.tracks.length || toIndex < 0 || toIndex >= state.tracks.length) return state;
+                    const newTracks = [...state.tracks];
+                    const [movedTrack] = newTracks.splice(fromIndex, 1);
+                    newTracks.splice(toIndex, 0, movedTrack);
+                    return { tracks: newTracks };
+                });
+            },
 
             quantizeSelection: (grid = 0.25) => {
                 const state = get();
@@ -1285,6 +1301,72 @@ export const useProjectStore = create(
                 };
             },
 
+            // ─── Cloud & Persistence ───
+            cloudProjects: [],
+            isLoading: false,
+            isSaving: false,
+
+            fetchProjects: async () => {
+                set({ isLoading: true });
+                try {
+                    const projects = await CloudService.listProjects();
+                    set({ cloudProjects: projects });
+                } catch (e) { console.error(e); }
+                set({ isLoading: false });
+            },
+
+            loadFromCloud: async (id) => {
+                set({ isLoading: true });
+                try {
+                    const project = await CloudService.loadProject(id);
+                    if (project && project.data) {
+                        get()._pushUndo('Load from Cloud');
+
+                        // For now, we assume simple data structure compatibility
+                        const data = project.data;
+                        set({
+                            projectName: data.name || data.projectName || 'Untitled',
+                            bpm: data.bpm,
+                            key: data.key,
+                            scale: data.scale,
+                            timeSignature: data.timeSignature,
+                            tracks: data.tracks, // Note: Buffer IDs must be valid in current session or re-hydrated
+                            trackFolders: data.trackFolders || [],
+                        });
+
+                        // In a real app we'd need to re-download audio files here given the bufferIds
+                        // For this local-storage mock, we assume buffers are still in AudioBufferManager memory
+                        // which is true if we haven't refreshed the page. 
+                        // A full implementation would serialize buffers to IndexedDB.
+                    }
+                } catch (e) {
+                    console.error("Failed to load project", e);
+                }
+                set({ isLoading: false });
+            },
+
+            saveToCloud: async () => {
+                set({ isSaving: true });
+                const state = get();
+                const projectData = {
+                    id: state.tracks.length > 0 ? (state.tracks[0].id + '_proj') : uid(),
+                    name: state.projectName,
+                    bpm: state.bpm,
+                    key: state.key,
+                    scale: state.scale,
+                    timeSignature: state.timeSignature,
+                    tracks: state.tracks,
+                    trackFolders: state.trackFolders,
+                };
+
+                const success = await CloudService.saveProject(projectData);
+                if (success) {
+                    await get().fetchProjects();
+                }
+                set({ isSaving: false });
+                return success;
+            },
+
             // ─── Version History (Phase 33) ───
             saveVersion: (label = 'Manual Save') => {
                 const archive = get().archiveProject();
@@ -1330,26 +1412,50 @@ export const useProjectStore = create(
 
             // ─── Audio Cleanup ───
             cleanAudioClip: async (trackId, clipId, options) => {
+                const state = get();
+                const track = state.tracks.find(t => t.id === trackId);
+                const clip = track?.clips.find(c => c.id === clipId);
+                if (!clip || !clip.bufferId) return;
+
+                const entry = audioBufferManager.getBuffer(clip.bufferId);
+                if (!entry) return;
+
                 get()._pushUndo('Clean Audio');
-                // AudioCleaner runs on the buffer data in the AudioBufferManager
-                // For now, mark the clip as cleaned with the options used
-                const stats = { popsRemoved: 0, cracklesFixed: 0, artifactsSmoothed: 0, dcCorrected: false };
-                set(state => ({
-                    tracks: state.tracks.map(t =>
-                        t.id === trackId ? {
-                            ...t,
-                            clips: t.clips.map(c =>
-                                c.id === clipId ? {
-                                    ...c,
-                                    cleaned: true,
-                                    cleanOptions: options,
-                                    cleanedAt: new Date().toISOString(),
-                                } : c
-                            )
-                        } : t
-                    )
-                }));
-                return stats;
+
+                try {
+                    // Use main context or fallback
+                    const ctx = audioEngine.context || new AudioContext();
+
+                    const { cleaned, stats } = await AudioCleaner.clean(
+                        ctx,
+                        entry.buffer,
+                        options
+                    );
+
+                    // Save new buffer
+                    const newId = await audioBufferManager.addBuffer(cleaned);
+
+                    set(state => ({
+                        tracks: state.tracks.map(t =>
+                            t.id === trackId ? {
+                                ...t,
+                                clips: t.clips.map(c =>
+                                    c.id === clipId ? {
+                                        ...c,
+                                        bufferId: newId,
+                                        cleaned: true,
+                                        cleanOptions: options,
+                                        cleanedAt: new Date().toISOString(),
+                                    } : c
+                                )
+                            } : t
+                        )
+                    }));
+                    return stats;
+                } catch (e) {
+                    console.error("Audio cleanup failed", e);
+                    return { error: e.message };
+                }
             },
 
             // ─── Audio-to-MIDI (single clip) ───
@@ -1358,35 +1464,47 @@ export const useProjectStore = create(
                 const state = get();
                 const track = state.tracks.find(t => t.id === trackId);
                 const clip = track?.clips?.find(c => c.id === clipId);
-                if (!clip) throw new Error('Clip not found');
+                if (!clip || !clip.bufferId) throw new Error('Clip not found');
 
-                // Create a new MIDI track with detected notes
-                const newTrackId = 'midi_' + Date.now();
-                const result = { tracks: [{ name: `${track.name} → MIDI`, notes: [] }] };
+                const entry = audioBufferManager.getBuffer(clip.bufferId);
+                if (!entry) return;
 
-                set(prev => ({
-                    tracks: [...prev.tracks, {
-                        id: newTrackId,
-                        name: `${track.name} → MIDI`,
-                        type: 'midi',
-                        volume: 0.8,
-                        pan: 0,
-                        muted: false,
-                        solo: false,
-                        color: '#45B7D1',
-                        clips: [{
-                            id: 'mclip_' + Date.now(),
-                            startBeat: clip.startBeat || 0,
-                            lengthBeats: clip.lengthBeats || 4,
-                            notes: result.tracks[0].notes,
+                try {
+                    const ctx = audioEngine.context || new AudioContext();
+                    const { tracks } = await AudioToMidi.convert(
+                        ctx,
+                        entry.buffer,
+                        { ...options, bpm: state.bpm }
+                    );
+
+                    if (tracks && tracks.length > 0) {
+                        const newTracks = tracks.map((midiTrack, i) => ({
+                            id: uid(),
+                            name: midiTrack.name,
                             type: 'midi',
-                            name: `${clip.name || 'Audio'} (MIDI)`,
-                            sourceClipId: clipId,
-                        }],
-                    }]
-                }));
+                            volume: 0.8,
+                            pan: 0,
+                            muted: false,
+                            solo: false,
+                            color: getTrackColor(state.tracks.length + i + 1),
+                            clips: [{
+                                id: uid(),
+                                startBeat: clip.startBeat,
+                                lengthBeats: clip.lengthBeats,
+                                notes: midiTrack.notes,
+                                type: 'midi',
+                                name: `${clip.name} (MIDI)`,
+                                sourceClipId: clipId,
+                            }],
+                        }));
 
-                return result;
+                        set(prev => ({
+                            tracks: [...prev.tracks, ...newTracks]
+                        }));
+                    }
+                } catch (e) {
+                    console.error("Audio to MIDI failed", e);
+                }
             },
 
             // ─── Audio-to-MIDI (full track with stem separation) ───
@@ -1394,41 +1512,83 @@ export const useProjectStore = create(
                 get()._pushUndo('Convert Track to MIDI (Stems)');
                 const state = get();
                 const track = state.tracks.find(t => t.id === trackId);
-                if (!track) throw new Error('Track not found');
+                // For simplicity, find the first audio clip
+                const clip = track?.clips.find(c => c.type === 'audio' && c.bufferId);
 
-                const stemNames = ['Bass', 'Keys/Lead', 'Percussion/High'];
-                const stemColors = ['#FF6B6B', '#4ECDC4', '#FFEAA7'];
-                const newTracks = stemNames.map((name, i) => ({
-                    id: `stem_midi_${Date.now()}_${i}`,
-                    name: `${track.name} → ${name}`,
-                    type: 'midi',
-                    volume: 0.8,
-                    pan: 0,
-                    muted: false,
-                    solo: false,
-                    color: stemColors[i],
-                    clips: [],
-                }));
+                if (!track || !clip) return;
 
-                // Add vocal isolation track
-                newTracks.push({
-                    id: `vocal_${Date.now()}`,
-                    name: `${track.name} → Vocals`,
-                    type: 'audio',
-                    volume: 0.8,
-                    pan: 0,
-                    muted: false,
-                    solo: false,
-                    color: '#DDA0DD',
-                    clips: [],
-                });
+                const entry = audioBufferManager.getBuffer(clip.bufferId);
+                if (!entry) return;
 
-                set(prev => ({ tracks: [...prev.tracks, ...newTracks] }));
+                set({ isLoading: true });
 
-                return {
-                    tracks: stemNames.map(name => ({ name, notes: [] })),
-                    vocalBuffer: null,
-                };
+                try {
+                    const ctx = audioEngine.context || new AudioContext();
+                    const { tracks, vocalBuffer } = await AudioToMidi.convert(
+                        ctx,
+                        entry.buffer,
+                        { ...options, bpm: state.bpm, mode: 'stems' }
+                    );
+
+                    const newTracks = [];
+
+                    // Add MIDI tracks for stems
+                    if (tracks) {
+                        tracks.forEach((stem, i) => {
+                            newTracks.push({
+                                id: uid(),
+                                name: `${track.name} - ${stem.name}`,
+                                type: 'midi',
+                                volume: 0.8,
+                                pan: 0,
+                                muted: false,
+                                solo: false,
+                                color: getTrackColor(state.tracks.length + i + 1),
+                                clips: [{
+                                    id: uid(),
+                                    startBeat: clip.startBeat,
+                                    lengthBeats: clip.lengthBeats,
+                                    notes: stem.notes,
+                                    type: 'midi',
+                                    name: stem.name,
+                                    sourceClipId: clip.id
+                                }]
+                            });
+                        });
+                    }
+
+                    // Add Vocal Audio Track if present
+                    if (vocalBuffer) {
+                        const vocalBufferId = await audioBufferManager.addBuffer(vocalBuffer);
+                        newTracks.push({
+                            id: uid(),
+                            name: `${track.name} - Vocals`,
+                            type: 'audio',
+                            volume: 0.8,
+                            pan: 0,
+                            muted: false,
+                            solo: false,
+                            color: '#FF69B4',
+                            clips: [{
+                                id: uid(),
+                                startBeat: clip.startBeat,
+                                lengthBeats: clip.lengthBeats,
+                                bufferId: vocalBufferId,
+                                type: 'audio',
+                                name: 'Vocals',
+                            }]
+                        });
+                    }
+
+                    set(prev => ({
+                        tracks: [...prev.tracks, ...newTracks],
+                        isLoading: false
+                    }));
+
+                } catch (e) {
+                    console.error("Stem conversion failed", e);
+                    set({ isLoading: false });
+                }
             },
 
             // ─── Timeline Length ───
@@ -1478,29 +1638,83 @@ export const useProjectStore = create(
             },
 
             // ─── Track Extend ───
-            extendTrack: (trackId, clipId, targetBars) => {
-                get()._pushUndo('Extend Track');
+            extendTrack: async (trackId, clipId, targetBars) => {
                 const state = get();
-                const beatsPerBar = (state.timeSignature?.[0] || 4);
-                const extensionBeats = targetBars * beatsPerBar;
+                const track = state.tracks.find(t => t.id === trackId);
+                const clip = track?.clips.find(c => c.id === clipId);
 
-                set(prev => ({
-                    tracks: prev.tracks.map(t => {
-                        if (t.id !== trackId) return t;
-                        return {
-                            ...t,
-                            clips: t.clips.map(c => {
-                                if (c.id !== clipId) return c;
-                                return {
-                                    ...c,
-                                    lengthBeats: (c.lengthBeats || 4) + extensionBeats,
-                                    extended: true,
-                                    extendedBars: targetBars,
-                                };
-                            })
-                        };
-                    })
-                }));
+                if (!track || !clip || clip.type !== 'audio' || !clip.bufferId) return;
+
+                // get buffer
+                const entry = audioBufferManager.getBuffer(clip.bufferId);
+                if (!entry || !entry.buffer) {
+                    console.warn('Buffer not found for extension');
+                    return;
+                }
+
+                // Push undo state before async op
+                get()._pushUndo('Extend Track');
+
+                const beatsPerBar = (state.timeSignature?.[0] || 4);
+                // Calculate total target length (original + extension)
+                // The UI passes "targetBars" as the NEW total length or extension amount? 
+                // In the UI I passed `Math.ceil(clip.lengthBeats / 4) * 2` which is total bars * 2. 
+                // So targetBars represents the TOTAL desired length in bars.
+
+                // TrackExtender.extend takes options.
+                // We want to extend TO a specific length.
+
+                const currentBars = clip.lengthBeats / beatsPerBar;
+                // The UI argument I named 'targetBars' in the store action, but usage in UI was:
+                // extendTrack(..., existingBars * 2) 
+
+                // Let's assume targetBars is the TOTAL desired bar count
+                const targetDurationSeconds = (targetBars * beatsPerBar * 60) / state.bpm;
+
+                // AudioContext access - we need a context to create buffers.
+                // We can use a temporary OfflineAudioContext or try to access the main one.
+                // audioBufferManager might have a context or we create one.
+                const offlineCtx = new OfflineAudioContext(
+                    entry.buffer.numberOfChannels,
+                    Math.ceil(targetDurationSeconds * entry.buffer.sampleRate),
+                    entry.buffer.sampleRate
+                );
+
+                console.log(`Extending clip ${clipId} to ${targetBars} bars...`);
+
+                try {
+                    const extendedBuffer = await TrackExtender.extend(offlineCtx, entry.buffer, {
+                        targetLengthSeconds: targetDurationSeconds,
+                        bpm: state.bpm,
+                        beatsPerBar: beatsPerBar,
+                        variation: 0.2
+                    });
+
+                    // Save new buffer
+                    const newBufferId = await audioBufferManager.addBuffer(extendedBuffer);
+
+                    set(prev => ({
+                        tracks: prev.tracks.map(t => {
+                            if (t.id !== trackId) return t;
+                            return {
+                                ...t,
+                                clips: t.clips.map(c => {
+                                    if (c.id !== clipId) return c;
+                                    return {
+                                        ...c,
+                                        bufferId: newBufferId, // Update to new buffer
+                                        lengthBeats: targetBars * beatsPerBar,
+                                        extended: true,
+                                        extendedBars: targetBars,
+                                    };
+                                })
+                            };
+                        })
+                    }));
+                    console.log('Extension complete');
+                } catch (err) {
+                    console.error('Track extension failed:', err);
+                }
             },
 
             // ─── Volume Automation per Track ───
