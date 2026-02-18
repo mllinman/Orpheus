@@ -32,20 +32,10 @@
     padding: 0 var(--sp-2);
 }
 
-.logo-icon {
-    font-size: 16px;
-    background: var(--gradient-accent);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-}
-
-.logo-text {
-    font-size: var(--text-sm);
-    font-weight: 700;
-    letter-spacing: 2px;
-    background: var(--gradient-accent);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
+.logo-img {
+    height: 28px;
+    width: auto;
+    object-fit: contain;
 }
 
 .menu-items {

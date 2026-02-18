@@ -1502,6 +1502,33 @@ export const useProjectStore = create(
                     })
                 }));
             },
+
+            // ─── Volume Automation per Track ───
+            updateTrackAutomation: (trackId, param, points) => {
+                get()._pushUndo('Update Automation');
+                set(state => ({
+                    tracks: state.tracks.map(t =>
+                        t.id === trackId ? {
+                            ...t,
+                            [`${param}Automation`]: points,
+                        } : t
+                    )
+                }));
+            },
+
+            // ─── Assign Instrument to MIDI Note ───
+            setClipInstrument: (trackId, clipId, instrumentId, instrumentName) => {
+                set(state => ({
+                    tracks: state.tracks.map(t =>
+                        t.id === trackId ? {
+                            ...t,
+                            clips: t.clips.map(c =>
+                                c.id === clipId ? { ...c, instrumentId, instrumentName } : c
+                            )
+                        } : t
+                    )
+                }));
+            },
         }),
         {
             name: 'orpheus-project',

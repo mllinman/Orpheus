@@ -1127,3 +1127,362 @@
     text-align: center;
     font-family: var(--font-mono, monospace);
 }
+
+/* ── MIDI Instrument Picker ── */
+.midi-instrument-picker {
+    background: var(--bg-panel);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    min-width: 340px;
+}
+
+.mip-body {
+    padding: var(--sp-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+}
+
+.mip-categories {
+    display: flex;
+    gap: 2px;
+    flex-wrap: wrap;
+}
+
+.mip-cat-btn {
+    padding: 3px 8px;
+    font-size: 11px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    background: var(--bg-surface);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.mip-cat-btn.active {
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+    color: #fff;
+}
+
+.mip-cat-btn:hover {
+    border-color: var(--accent-primary);
+}
+
+.mip-instruments {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    gap: 4px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.mip-inst-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 6px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    background: var(--bg-surface);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    text-align: left;
+}
+
+.mip-inst-btn:hover {
+    border-color: var(--accent-primary);
+}
+
+.mip-inst-btn.active {
+    border-color: var(--accent-primary);
+    background: rgba(99, 102, 241, 0.15);
+}
+
+.mip-inst-icon {
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+.mip-inst-name {
+    font-size: 10px;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.mip-controls {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+    border-top: 1px solid var(--border-subtle);
+    padding-top: var(--sp-2);
+}
+
+.mip-selected {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: var(--text-xs);
+}
+
+.mip-note-num {
+    color: var(--text-muted);
+    font-size: 10px;
+}
+
+.mip-row {
+    display: flex;
+    gap: var(--sp-2);
+    align-items: center;
+    font-size: var(--text-xs);
+}
+
+.mip-row label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
+}
+
+.mip-slider {
+    width: 80px;
+    accent-color: var(--accent-primary);
+}
+
+.mip-val {
+    font-size: 10px;
+    color: var(--text-muted);
+    min-width: 24px;
+}
+
+.mip-replace-toggle {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.mip-actions {
+    display: flex;
+    gap: var(--sp-1);
+}
+
+.mip-beat-grid-label {
+    font-size: 10px;
+    color: var(--text-muted);
+}
+
+.mip-beat-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1px;
+}
+
+.mip-beat-cell {
+    width: 18px;
+    height: 18px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 2px;
+    background: var(--bg-dark);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.mip-beat-cell:hover {
+    background: var(--bg-hover);
+    border-color: var(--accent-primary);
+}
+
+.mip-beat-cell.filled {
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+}
+
+.mip-beat-cell.bar-start {
+    border-left: 2px solid var(--text-muted);
+}
+
+/* ── Clip Editor Panel ── */
+.clip-editor-panel {
+    background: var(--bg-panel);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    min-width: 480px;
+}
+
+.cep-body {
+    padding: var(--sp-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-3);
+}
+
+.cep-empty {
+    padding: var(--sp-4);
+    text-align: center;
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+}
+
+.cep-preview {
+    position: relative;
+}
+
+.cep-canvas {
+    width: 100%;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+}
+
+.cep-preview-info {
+    position: absolute;
+    bottom: 4px;
+    right: 8px;
+    font-size: 9px;
+    color: var(--text-muted);
+    display: flex;
+    gap: 8px;
+}
+
+.cep-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-1);
+}
+
+.cep-section-title {
+    font-size: var(--text-xs);
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.cep-fade-row {
+    display: flex;
+    gap: var(--sp-3);
+}
+
+.cep-fade-control {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.cep-fade-control label {
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+.cep-slider {
+    width: 100%;
+    accent-color: var(--accent-primary);
+}
+
+.cep-val {
+    font-size: 10px;
+    color: var(--text-muted);
+}
+
+.cep-gain-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+}
+
+.cep-db {
+    font-size: 10px;
+    color: var(--accent-primary);
+    font-family: var(--font-mono, monospace);
+}
+
+.cep-split-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    font-size: var(--text-xs);
+}
+
+.cep-actions {
+    display: flex;
+    gap: var(--sp-2);
+    flex-wrap: wrap;
+}
+
+/* ── Volume Automation Drawer ── */
+.volume-automation-drawer {
+    background: var(--bg-panel);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+}
+
+.vad-body {
+    padding: var(--sp-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+}
+
+.vad-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--sp-1);
+}
+
+.vad-curve-btns {
+    display: flex;
+    gap: 2px;
+}
+
+.vad-presets {
+    display: flex;
+    gap: 2px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.vad-preset-label {
+    font-size: 10px;
+    color: var(--text-muted);
+}
+
+.vad-canvas-container {
+    position: relative;
+}
+
+.vad-canvas {
+    width: 100%;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+    cursor: crosshair;
+}
+
+.vad-hint {
+    position: absolute;
+    bottom: 4px;
+    left: 8px;
+    font-size: 9px;
+    color: var(--text-muted);
+    pointer-events: none;
+}
+
+.vad-actions {
+    display: flex;
+    gap: var(--sp-2);
+    align-items: center;
+}
+
+.vad-point-count {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-left: auto;
+}
