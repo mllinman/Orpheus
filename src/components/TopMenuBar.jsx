@@ -449,7 +449,7 @@ export default function TopMenuBar() {
   return (
     <div className="top-menu-bar" ref={menuRef}>
       <div className="menu-logo">
-        <img src="/orpheus-logo.svg" alt="Orpheus" className="logo-img" />
+        <img src="/orpheus-logo.png" alt="Orpheus" className="logo-img" />
       </div>
       <div className="menu-items">
         {Object.entries(MENUS).map(([menuName, items]) => (
