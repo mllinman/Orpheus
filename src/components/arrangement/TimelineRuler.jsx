@@ -90,8 +90,6 @@ export default function TimelineRuler({ totalBeats, pixelsPerBeat }) {
 
   }, [totalBeats, pixelsPerBeat, isLooping, loopStart, loopEnd]);
 
-  }, [totalBeats, pixelsPerBeat, isLooping, loopStart, loopEnd]);
-
   // Handle Scrubbing
   useEffect(() => {
     const onMove = (e) => {

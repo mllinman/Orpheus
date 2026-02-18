@@ -301,3 +301,325 @@
     height: 4px;
     width: 100%;
 }
+
+/* ── Undo History Panel ── */
+.undo-history-panel {
+    position: fixed;
+    right: 8px;
+    top: 80px;
+    width: 240px;
+    max-height: 400px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    z-index: var(--z-modal);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.undo-history-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--sp-2) var(--sp-3);
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.undo-history-list {
+    overflow-y: auto;
+    flex: 1;
+    padding: var(--sp-1) 0;
+}
+
+.undo-history-item {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    padding: var(--sp-1) var(--sp-3);
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background var(--transition-fast);
+}
+
+.undo-history-item:hover {
+    background: var(--bg-hover);
+}
+
+.undo-history-item.latest {
+    color: var(--accent-primary);
+    font-weight: 600;
+}
+
+.undo-history-item.undo-origin {
+    color: var(--text-muted);
+    font-style: italic;
+    cursor: default;
+}
+
+.undo-icon {
+    font-size: 8px;
+}
+
+.undo-step {
+    margin-left: auto;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+}
+
+.undo-history-empty {
+    padding: var(--sp-3);
+    font-size: var(--text-xs);
+    color: var(--text-muted);
+    text-align: center;
+}
+
+/* ── Modal Overlay (shared) ── */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: calc(var(--z-modal) + 10);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 0.15s ease;
+}
+
+.modal {
+    background: var(--bg-panel);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    max-width: 600px;
+    width: 90vw;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    animation: slideUp 0.2s ease;
+}
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--sp-3) var(--sp-4);
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.modal-header h2 {
+    font-size: var(--text-md);
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.modal-body {
+    padding: var(--sp-3) var(--sp-4);
+    overflow-y: auto;
+    flex: 1;
+}
+
+/* ── Hotkey Editor ── */
+.hotkey-search {
+    width: 100%;
+    margin-bottom: var(--sp-3);
+}
+
+.hotkey-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.hotkey-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--sp-1) var(--sp-2);
+    border-radius: var(--radius-sm);
+    transition: background var(--transition-fast);
+}
+
+.hotkey-row:hover {
+    background: var(--bg-hover);
+}
+
+.hotkey-row.recording {
+    background: rgba(99, 102, 241, 0.15);
+}
+
+.hotkey-action-label {
+    font-size: var(--text-sm);
+    color: var(--text-secondary);
+}
+
+.hotkey-binding {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+}
+
+.hotkey-combo {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--accent-primary);
+    background: var(--bg-input);
+    padding: 2px 8px;
+    border-radius: var(--radius-xs);
+    min-width: 40px;
+    text-align: center;
+}
+
+.hotkey-recording {
+    font-size: var(--text-xs);
+    color: var(--accent-warning);
+    animation: pulse 1s ease-in-out infinite;
+}
+
+/* ── Template Manager ── */
+.template-save-row {
+    display: flex;
+    gap: var(--sp-2);
+    margin-bottom: var(--sp-3);
+}
+
+.template-save-row .input {
+    flex: 1;
+}
+
+.btn-accent {
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+    color: #fff;
+}
+
+.btn-accent:hover {
+    background: var(--accent-secondary);
+    border-color: var(--accent-secondary);
+}
+
+.template-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.template-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--sp-2) var(--sp-2);
+    border-radius: var(--radius-sm);
+    background: var(--bg-surface);
+}
+
+.template-row:hover {
+    background: var(--bg-hover);
+}
+
+.template-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.template-name {
+    font-size: var(--text-sm);
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.template-meta {
+    font-size: var(--text-xs);
+    color: var(--text-muted);
+}
+
+.template-actions {
+    display: flex;
+    gap: var(--sp-1);
+}
+
+.template-empty {
+    text-align: center;
+    padding: var(--sp-4);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+}
+
+.btn-xs {
+    height: 20px;
+    min-width: 20px;
+    font-size: 10px;
+    padding: 1px 5px;
+}
+
+/* ── Track Folder ── */
+.track-folder {
+    border-left: 3px solid var(--accent-primary);
+    margin-bottom: 2px;
+}
+
+.track-folder-header {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    padding: var(--sp-1) var(--sp-2);
+    background: var(--bg-surface);
+    cursor: pointer;
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.track-folder-header:hover {
+    background: var(--bg-hover);
+}
+
+.folder-collapse-icon {
+    font-size: 10px;
+    transition: transform 0.15s ease;
+}
+
+.folder-collapse-icon.collapsed {
+    transform: rotate(-90deg);
+}
+
+.frozen-indicator {
+    display: inline-block;
+    padding: 1px 4px;
+    background: var(--accent-info);
+    color: #fff;
+    font-size: 9px;
+    border-radius: var(--radius-xs);
+    font-weight: 700;
+    margin-left: var(--sp-1);
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes slideUp {
+    from {
+        transform: translateY(8px);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}

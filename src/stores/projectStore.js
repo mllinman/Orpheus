@@ -140,9 +140,14 @@ export const useProjectStore = create((set, get) => ({
     bpm: 128,
     timeSignature: [4, 4],
     sampleRate: 44100,
+    key: 'C',
+    scale: 'major',
 
     // Tracks
     tracks: createDemoProject(),
+
+    // Track Folders
+    trackFolders: [], // { id, name, color, trackIds[], collapsed }
 
     // Transport
     isPlaying: false,
@@ -156,39 +161,47 @@ export const useProjectStore = create((set, get) => ({
     // Undo/redo
     undoStack: [],
     redoStack: [],
+    undoLabels: [],  // Label for each undo entry
     _maxHistory: 50,
 
+    // Auto-save
+    _autoSaveTimer: null,
+    lastAutoSave: null,
+
     // Push current state to undo stack before making changes
-    _pushUndo: () => {
+    _pushUndo: (label = 'Edit') => {
         const state = get();
         const snapshot = {
             tracks: JSON.parse(JSON.stringify(state.tracks)),
+            trackFolders: JSON.parse(JSON.stringify(state.trackFolders)),
             projectName: state.projectName,
             bpm: state.bpm,
             timeSignature: state.timeSignature,
         };
         set(prev => ({
             undoStack: [...prev.undoStack.slice(-prev._maxHistory), snapshot],
+            undoLabels: [...prev.undoLabels.slice(-prev._maxHistory), label],
             redoStack: [],
         }));
     },
 
     undo: () => {
-        const { undoStack, tracks, projectName, bpm, timeSignature } = get();
+        const { undoStack, undoLabels, tracks, trackFolders, projectName, bpm, timeSignature } = get();
         if (undoStack.length === 0) return;
-        const current = { tracks: JSON.parse(JSON.stringify(tracks)), projectName, bpm, timeSignature };
+        const current = { tracks: JSON.parse(JSON.stringify(tracks)), trackFolders: JSON.parse(JSON.stringify(trackFolders)), projectName, bpm, timeSignature };
         const prev = undoStack[undoStack.length - 1];
         set({
             ...prev,
             undoStack: undoStack.slice(0, -1),
+            undoLabels: undoLabels.slice(0, -1),
             redoStack: [...get().redoStack, current],
         });
     },
 
     redo: () => {
-        const { redoStack, tracks, projectName, bpm, timeSignature } = get();
+        const { redoStack, tracks, trackFolders, projectName, bpm, timeSignature } = get();
         if (redoStack.length === 0) return;
-        const current = { tracks: JSON.parse(JSON.stringify(tracks)), projectName, bpm, timeSignature };
+        const current = { tracks: JSON.parse(JSON.stringify(tracks)), trackFolders: JSON.parse(JSON.stringify(trackFolders)), projectName, bpm, timeSignature };
         const next = redoStack[redoStack.length - 1];
         set({
             ...next,
@@ -579,6 +592,179 @@ export const useProjectStore = create((set, get) => ({
         }));
     },
 
+    // ─── Track Folders ───
+    addTrackFolder: (name = 'New Folder') => {
+        get()._pushUndo('Add Folder');
+        set(prev => ({
+            trackFolders: [...prev.trackFolders, { id: uid(), name, color: '#666', trackIds: [], collapsed: false }]
+        }));
+    },
+
+    removeTrackFolder: (folderId) => {
+        get()._pushUndo('Remove Folder');
+        set(prev => ({
+            trackFolders: prev.trackFolders.filter(f => f.id !== folderId)
+        }));
+    },
+
+    toggleFolderCollapse: (folderId) => {
+        set(prev => ({
+            trackFolders: prev.trackFolders.map(f =>
+                f.id === folderId ? { ...f, collapsed: !f.collapsed } : f
+            )
+        }));
+    },
+
+    addTrackToFolder: (folderId, trackId) => {
+        set(prev => ({
+            trackFolders: prev.trackFolders.map(f =>
+                f.id === folderId ? { ...f, trackIds: [...f.trackIds.filter(id => id !== trackId), trackId] } : f
+            )
+        }));
+    },
+
+    removeTrackFromFolder: (folderId, trackId) => {
+        set(prev => ({
+            trackFolders: prev.trackFolders.map(f =>
+                f.id === folderId ? { ...f, trackIds: f.trackIds.filter(id => id !== trackId) } : f
+            )
+        }));
+    },
+
+    // ─── Glue / Merge Clips ───
+    glueClips: (trackId, clipIds) => {
+        get()._pushUndo('Glue Clips');
+        set(state => {
+            const track = state.tracks.find(t => t.id === trackId);
+            if (!track) return state;
+            const toGlue = track.clips.filter(c => clipIds.includes(c.id)).sort((a, b) => a.startBeat - b.startBeat);
+            if (toGlue.length < 2) return state;
+            const first = toGlue[0];
+            const last = toGlue[toGlue.length - 1];
+            const merged = {
+                ...first,
+                id: uid(),
+                name: first.name + ' (merged)',
+                lengthBeats: (last.startBeat + last.lengthBeats) - first.startBeat,
+            };
+            return {
+                tracks: state.tracks.map(t =>
+                    t.id === trackId ? { ...t, clips: [...t.clips.filter(c => !clipIds.includes(c.id)), merged] } : t
+                )
+            };
+        });
+    },
+
+    // ─── Duplicate Clip ───
+    duplicateClip: (trackId, clipId) => {
+        get()._pushUndo('Duplicate Clip');
+        set(state => {
+            const track = state.tracks.find(t => t.id === trackId);
+            if (!track) return state;
+            const clip = track.clips.find(c => c.id === clipId);
+            if (!clip) return state;
+            const dup = { ...JSON.parse(JSON.stringify(clip)), id: uid(), startBeat: clip.startBeat + clip.lengthBeats };
+            return {
+                tracks: state.tracks.map(t =>
+                    t.id === trackId ? { ...t, clips: [...t.clips, dup] } : t
+                )
+            };
+        });
+    },
+
+    // ─── Freeze / Flatten ───
+    freezeTrack: (trackId) => {
+        get()._pushUndo('Freeze Track');
+        set(state => ({
+            tracks: state.tracks.map(t =>
+                t.id === trackId ? { ...t, frozen: true } : t
+            )
+        }));
+    },
+
+    unfreezeTrack: (trackId) => {
+        set(state => ({
+            tracks: state.tracks.map(t =>
+                t.id === trackId ? { ...t, frozen: false } : t
+            )
+        }));
+    },
+
+    // ─── Templates ───
+    saveTemplate: (name) => {
+        const state = get();
+        const template = {
+            name,
+            bpm: state.bpm,
+            timeSignature: state.timeSignature,
+            tracks: state.tracks.map(t => ({ ...t, clips: [] })), // No clip data
+            trackFolders: state.trackFolders,
+            savedAt: new Date().toISOString(),
+        };
+        const templates = JSON.parse(localStorage.getItem('orpheus_templates') || '[]');
+        templates.push(template);
+        localStorage.setItem('orpheus_templates', JSON.stringify(templates));
+        return template;
+    },
+
+    loadTemplate: (index) => {
+        const templates = JSON.parse(localStorage.getItem('orpheus_templates') || '[]');
+        if (!templates[index]) return;
+        const tmpl = templates[index];
+        get()._pushUndo('Load Template');
+        set({
+            bpm: tmpl.bpm,
+            timeSignature: tmpl.timeSignature,
+            tracks: tmpl.tracks,
+            trackFolders: tmpl.trackFolders || [],
+        });
+    },
+
+    getTemplates: () => {
+        return JSON.parse(localStorage.getItem('orpheus_templates') || '[]');
+    },
+
+    deleteTemplate: (index) => {
+        const templates = JSON.parse(localStorage.getItem('orpheus_templates') || '[]');
+        templates.splice(index, 1);
+        localStorage.setItem('orpheus_templates', JSON.stringify(templates));
+    },
+
+    // ─── Auto-Save ───
+    startAutoSave: () => {
+        const timer = setInterval(() => {
+            const state = get();
+            if (state.tracks.length > 0) {
+                state.saveProject();
+                set({ lastAutoSave: new Date().toISOString() });
+            }
+        }, 5000);
+        set({ _autoSaveTimer: timer });
+    },
+
+    stopAutoSave: () => {
+        const timer = get()._autoSaveTimer;
+        if (timer) clearInterval(timer);
+        set({ _autoSaveTimer: null });
+    },
+
+    // ─── Slip Editing ───
+    slipEdit: (trackId, clipId, offsetDelta) => {
+        get()._pushUndo('Slip Edit');
+        set(state => ({
+            tracks: state.tracks.map(t =>
+                t.id === trackId ? {
+                    ...t,
+                    clips: t.clips.map(c => c.id === clipId ? { ...c, offset: Math.max(0, (c.offset || 0) + offsetDelta) } : c)
+                } : t
+            )
+        }));
+    },
+
+    // ─── Project Key/Scale ───
+    setKey: (key) => set({ key }),
+    setScale: (scale) => set({ scale }),
+
     // Serialization
     saveProject: () => {
         const state = get();
@@ -742,5 +928,161 @@ export const useProjectStore = create((set, get) => ({
         } finally {
             set({ isLoading: false });
         }
+    },
+
+    // ─── Phase 25: Clip Gain Automation ───
+    setClipGainAutomation: (trackId, clipId, points) => {
+        get()._pushUndo('Edit Clip Gain');
+        set(state => ({
+            tracks: state.tracks.map(t =>
+                t.id === trackId ? {
+                    ...t,
+                    clips: t.clips.map(c =>
+                        c.id === clipId ? { ...c, gainAutomation: points } : c
+                    )
+                } : t
+            )
+        }));
+    },
+
+    addClipGainPoint: (trackId, clipId, beatOffset, gain) => {
+        get()._pushUndo('Add Gain Point');
+        set(state => ({
+            tracks: state.tracks.map(t =>
+                t.id === trackId ? {
+                    ...t,
+                    clips: t.clips.map(c => {
+                        if (c.id !== clipId) return c;
+                        const points = [...(c.gainAutomation || []), { beat: beatOffset, value: Math.max(0, Math.min(2, gain)) }];
+                        points.sort((a, b) => a.beat - b.beat);
+                        return { ...c, gainAutomation: points };
+                    })
+                } : t
+            )
+        }));
+    },
+
+    // ─── Normalize Clip (loudness) ───
+    normalizeClip: (trackId, clipId, targetDb = -14) => {
+        get()._pushUndo('Normalize');
+        set(state => ({
+            tracks: state.tracks.map(t =>
+                t.id === trackId ? {
+                    ...t,
+                    clips: t.clips.map(c => {
+                        if (c.id !== clipId) return c;
+                        // Simple gain normalization: adjust gain to reach target loudness
+                        // In a real DAW, this would analyze the buffer for LUFS
+                        const currentGain = c.gain || 1;
+                        const targetGain = Math.pow(10, targetDb / 20);
+                        return { ...c, gain: targetGain, normalized: true, normalizeTarget: targetDb };
+                    })
+                } : t
+            )
+        }));
+    },
+
+    // ─── Batch Processing ───
+    batchProcess: (trackId, clipIds, operation) => {
+        get()._pushUndo(`Batch ${operation}`);
+        set(state => ({
+            tracks: state.tracks.map(t => {
+                if (t.id !== trackId) return t;
+                return {
+                    ...t,
+                    clips: t.clips.map(c => {
+                        if (!clipIds.includes(c.id)) return c;
+                        switch (operation) {
+                            case 'normalize':
+                                return { ...c, gain: Math.pow(10, -14 / 20), normalized: true };
+                            case 'reverse':
+                                return { ...c, reversed: !c.reversed };
+                            case 'fadeIn':
+                                return { ...c, fadeIn: Math.min(c.lengthBeats * 0.25, 2) };
+                            case 'fadeOut':
+                                return { ...c, fadeOut: Math.min(c.lengthBeats * 0.25, 2) };
+                            case 'mute':
+                                return { ...c, muted: !c.muted };
+                            case 'resetGain':
+                                return { ...c, gain: 1, gainAutomation: [] };
+                            default:
+                                return c;
+                        }
+                    })
+                };
+            })
+        }));
+    },
+
+    // ─── Transient Slicing ───
+    sliceAtTransients: (trackId, clipId, transientBeats) => {
+        get()._pushUndo('Slice at Transients');
+        set(state => ({
+            tracks: state.tracks.map(t => {
+                if (t.id !== trackId) return t;
+                const clip = t.clips.find(c => c.id === clipId);
+                if (!clip || !transientBeats || transientBeats.length === 0) return t;
+
+                // Sort transient positions
+                const sorted = [...transientBeats].sort((a, b) => a - b);
+                const newClips = [];
+                let prevBeat = 0;
+
+                for (const beat of sorted) {
+                    if (beat <= prevBeat || beat >= clip.lengthBeats) continue;
+                    newClips.push({
+                        ...clip,
+                        id: uid(),
+                        startBeat: clip.startBeat + prevBeat,
+                        lengthBeats: beat - prevBeat,
+                        offset: (clip.offset || 0) + prevBeat,
+                    });
+                    prevBeat = beat;
+                }
+                // Last slice
+                if (prevBeat < clip.lengthBeats) {
+                    newClips.push({
+                        ...clip,
+                        id: uid(),
+                        startBeat: clip.startBeat + prevBeat,
+                        lengthBeats: clip.lengthBeats - prevBeat,
+                        offset: (clip.offset || 0) + prevBeat,
+                    });
+                }
+
+                return {
+                    ...t,
+                    clips: [...t.clips.filter(c => c.id !== clipId), ...newClips]
+                };
+            })
+        }));
+    },
+
+    // ─── Clip Color ───
+    setClipColor: (trackId, clipId, color) => {
+        set(state => ({
+            tracks: state.tracks.map(t =>
+                t.id === trackId ? {
+                    ...t,
+                    clips: t.clips.map(c =>
+                        c.id === clipId ? { ...c, color } : c
+                    )
+                } : t
+            )
+        }));
+    },
+
+    // ─── Clip Mute ───
+    toggleClipMute: (trackId, clipId) => {
+        set(state => ({
+            tracks: state.tracks.map(t =>
+                t.id === trackId ? {
+                    ...t,
+                    clips: t.clips.map(c =>
+                        c.id === clipId ? { ...c, muted: !c.muted } : c
+                    )
+                } : t
+            )
+        }));
     },
 }));

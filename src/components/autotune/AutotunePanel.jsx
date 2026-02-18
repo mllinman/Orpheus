@@ -31,9 +31,6 @@ function getNoteFromFrequency(frequency) {
   return { note, cents };
 }
 
-  return { note, cents };
-}
-
 export default function AutotunePanel() {
   const { selectedTrackId } = useUIStore();
   const { tracks, setTrackAutotune } = useProjectStore();
@@ -215,7 +212,6 @@ export default function AutotunePanel() {
                 min="0"
                 max="1"
                 step="0.01"
-                step="0.01"
                 value={config.speed}
                 onChange={(e) => updateParam('speed', parseFloat(e.target.value))}
                 style={{ width: '100%', accentColor: speedColor }}
@@ -238,7 +234,6 @@ export default function AutotunePanel() {
               min="0"
               max="1"
               step="0.01"
-              step="0.01"
               value={config.amount}
               onChange={(e) => updateParam('amount', parseFloat(e.target.value))}
               style={{ flex: 1, accentColor: 'var(--accent-primary)' }}
@@ -258,7 +253,6 @@ export default function AutotunePanel() {
               min="0"
               max="1"
               step="0.01"
-              step="0.01"
               value={config.humanize}
               onChange={(e) => updateParam('humanize', parseFloat(e.target.value))}
               style={{ flex: 1, accentColor: 'var(--accent-secondary)' }}
@@ -277,7 +271,6 @@ export default function AutotunePanel() {
               type="range"
               min="-100"
               max="100"
-              step="1"
               step="1"
               value={config.retune}
               onChange={(e) => updateParam('retune', parseFloat(e.target.value))}

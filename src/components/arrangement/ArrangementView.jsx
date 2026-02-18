@@ -8,11 +8,10 @@ import Playhead from './Playhead';
 import AutomationLane from './AutomationLane';
 
 export default function ArrangementView() {
-  const tracks = useProjectStore(s => s.tracks);
+  const { tracks, setPlayheadPosition, bpm, splitClip } = useProjectStore();
   const { horizontalZoom, verticalZoom, trackHeaderWidth } = useUIStore();
   const scrollRef = useRef(null);
   const headerScrollRef = useRef(null);
-  const { setPlayheadPosition, bpm, tracks, splitClip } = useProjectStore();
 
   const trackHeight = 80 * verticalZoom;
   const totalBars = 64;

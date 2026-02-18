@@ -16,11 +16,13 @@ const MENUS = {
     { label: 'Export Audio...', shortcut: 'Ctrl+Shift+E', action: 'export' },
     { label: 'Export Project File...', action: 'exportProject' },
     { divider: true },
+    { label: 'Templates...', action: 'templates' },
     { label: 'Project Settings...', action: 'settings' },
   ],
   Edit: [
     { label: 'Undo', shortcut: 'Ctrl+Z', action: 'undo' },
     { label: 'Redo', shortcut: 'Ctrl+Shift+Z', action: 'redo' },
+    { label: 'Undo History', action: 'undoHistory' },
     { divider: true },
     { label: 'Cut', shortcut: 'Ctrl+X', action: 'cut' },
     { label: 'Copy', shortcut: 'Ctrl+C', action: 'copy' },
@@ -28,10 +30,10 @@ const MENUS = {
     { label: 'Delete', shortcut: 'Del', action: 'delete' },
     { divider: true },
     { label: 'Select All', shortcut: 'Ctrl+A', action: 'selectAll' },
-    { label: 'Select All', shortcut: 'Ctrl+A', action: 'selectAll' },
     { label: 'Deselect All', shortcut: 'Ctrl+D', action: 'deselectAll' },
     { divider: true },
     { label: 'Quantize', shortcut: 'Q', action: 'quantize' },
+    { label: 'Glue Selected Clips', shortcut: 'Ctrl+G', action: 'glue' },
   ],
   View: [
     { label: 'Arrangement', shortcut: 'F1', action: 'viewArrangement' },
@@ -55,8 +57,10 @@ const MENUS = {
     { label: 'Duplicate Track', action: 'duplicateTrack' },
     { label: 'Remove Track', action: 'removeTrack' },
     { divider: true },
+    { label: 'Add Track Folder', action: 'addFolder' },
     { label: 'Add Automation Lane', action: 'addAutomation' },
     { label: 'Freeze Track', action: 'freezeTrack' },
+    { label: 'Unfreeze Track', action: 'unfreezeTrack' },
   ],
   Transport: [
     { label: 'Play / Stop', shortcut: 'Space', action: 'playStop' },
@@ -71,6 +75,7 @@ const MENUS = {
   ],
   Help: [
     { label: 'Keyboard Shortcuts', action: 'shortcuts' },
+    { label: 'Customize Hotkeys...', action: 'hotkeys' },
     { label: 'Documentation', action: 'docs' },
     { divider: true },
     { label: 'About Orpheus', action: 'about' },
@@ -235,6 +240,17 @@ export default function TopMenuBar() {
         proj.quantizeSelection();
         break;
 
+      case 'glue':
+        if (ui.selectedClipId && ui.selectedClipTrackId) {
+          // Glue selected clip with adjacent clips
+          proj.glueClips(ui.selectedClipTrackId, [ui.selectedClipId]);
+        }
+        break;
+
+      case 'undoHistory':
+        ui.toggleUndoHistory();
+        break;
+
       // ─── View ───
       case 'viewArrangement':
         setActiveView('arrangement');
@@ -264,8 +280,7 @@ export default function TopMenuBar() {
         zoomOut();
         break;
       case 'zoomFit':
-        // Fit all content into view: reset to a reasonable zoom
-        setHorizontalZoom(40);
+        ui.zoomToFit();
         break;
 
       // ─── Track ───
@@ -298,8 +313,21 @@ export default function TopMenuBar() {
           proj.addAutomationLane(proj.tracks[0].id);
         }
         break;
+      case 'addFolder':
+        proj.addTrackFolder();
+        break;
       case 'freezeTrack':
-        // Visual feedback: freeze is a no-op placeholder (would require offline rendering per track)
+        if (ui.selectedTrackId) {
+          proj.freezeTrack(ui.selectedTrackId);
+        }
+        break;
+      case 'unfreezeTrack':
+        if (ui.selectedTrackId) {
+          proj.unfreezeTrack(ui.selectedTrackId);
+        }
+        break;
+      case 'templates':
+        ui.setActiveModal('templates');
         break;
 
       // ─── Transport ───
@@ -395,6 +423,9 @@ export default function TopMenuBar() {
         break;
       case 'about':
         setActiveModal('about');
+        break;
+      case 'hotkeys':
+        ui.setActiveModal('hotkeys');
         break;
 
       default:

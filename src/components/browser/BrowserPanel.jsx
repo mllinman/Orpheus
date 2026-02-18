@@ -192,7 +192,6 @@ export default function BrowserPanel() {
       name: bufferInfo.fileName.replace(/\.[^.]+$/, ''),
       startBeat,
       lengthBeats,
-      lengthBeats,
       offset: 0,
       gain: 1,
       fadeIn: 0,

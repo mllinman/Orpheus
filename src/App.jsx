@@ -15,6 +15,9 @@ import AutotunePanel from './components/autotune/AutotunePanel';
 import ContextMenu from './components/shared/ContextMenu';
 import Modal from './components/shared/Modal';
 import DragDropOverlay from './components/shared/DragDropOverlay';
+import UndoHistoryPanel from './components/shared/UndoHistoryPanel';
+import HotkeyEditor from './components/modals/HotkeyEditor';
+import TemplateManager from './components/modals/TemplateManager';
 import { useUIStore } from './stores/uiStore';
 import { useProjectStore } from './stores/projectStore';
 import { setupKeyboardShortcuts } from './utils/keyboardShortcuts';
@@ -24,13 +27,18 @@ export default function App() {
   const {
     showBrowser, showMixer, showPianoRoll,
     showStemSeparation, showMastering, showAutotune,
-    browserWidth, mixerHeight, pianoRollHeight
+    browserWidth, mixerHeight, pianoRollHeight,
+    activeModal
   } = useUIStore();
 
   useEffect(() => {
     setupKeyboardShortcuts();
-    // Wire store ref into audio engine so it can schedule clips
     audioEngine.setStoreRef(() => useProjectStore.getState());
+    // Start auto-save
+    useProjectStore.getState().startAutoSave();
+    // Load saved hotkeys
+    useUIStore.getState().loadCustomHotkeys();
+    return () => useProjectStore.getState().stopAutoSave();
   }, []);
 
   const hasRightPanel = showStemSeparation || showMastering || showAutotune;
@@ -97,6 +105,11 @@ export default function App() {
       <ContextMenu />
       <Modal />
       <DragDropOverlay />
+      <UndoHistoryPanel />
+
+      {/* Modal Editors */}
+      {activeModal === 'hotkeys' && <HotkeyEditor />}
+      {activeModal === 'templates' && <TemplateManager />}
     </div>
   );
 }

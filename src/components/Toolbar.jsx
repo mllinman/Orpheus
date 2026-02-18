@@ -1,5 +1,6 @@
 import React from 'react';
 import { useUIStore } from '../stores/uiStore';
+import { useProjectStore } from '../stores/projectStore';
 import { SNAP_VALUES } from '../utils/helpers';
 
 const TOOLS = [
@@ -10,12 +11,17 @@ const TOOLS = [
   { id: 'erase',      icon: '✕', label: 'Erase (5)', key: '5' },
   { id: 'automation', icon: '⌇', label: 'Automation (6)', key: '6' },
   { id: 'mute',       icon: '🔇', label: 'Mute (7)', key: '7' },
+  { id: 'smart',      icon: '🔀', label: 'Smart Tool (8)', key: '8' },
+  { id: 'razor',      icon: '🗡', label: 'Razor (9)', key: '9' },
+  { id: 'stretch',    icon: '↔', label: 'Stretch (0)', key: '0' },
+  { id: 'slip',       icon: '⇄', label: 'Slip Edit', key: '' },
 ];
 
 export default function Toolbar() {
   const { activeTool, setActiveTool, snapEnabled, snapValue, setSnapEnabled, setSnapValue,
     showStemSeparation, showMastering, showAutotune,
-    toggleStemSeparation, toggleMastering, toggleAutotune } = useUIStore();
+    toggleStemSeparation, toggleMastering, toggleAutotune,
+    toggleUndoHistory, showUndoHistory } = useUIStore();
 
   return (
     <div className="toolbar">
@@ -64,6 +70,13 @@ export default function Toolbar() {
         >
           Quantize
         </button>
+        <button
+          className={`btn btn-sm btn-ghost ${showUndoHistory ? 'active' : ''}`}
+          data-tooltip="Undo History"
+          onClick={toggleUndoHistory}
+        >
+          ⟲ History
+        </button>
       </div>
 
       <div className="toolbar-spacer" />
@@ -95,3 +108,4 @@ export default function Toolbar() {
     </div>
   );
 }
+

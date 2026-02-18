@@ -4,8 +4,6 @@ import { useProjectStore } from '../../stores/projectStore';
 
 export default function TrackLane({ track, trackIndex, height, pixelsPerBeat, totalWidth }) {
   const canvasRef = useRef(null);
-export default function TrackLane({ track, trackIndex, height, pixelsPerBeat, totalWidth }) {
-  const canvasRef = useRef(null);
   const { selectedClipId, setSelectedClip, activeTool, showContextMenu } = useUIStore();
   const { splitClip, updateClip, removeClip, reverseClip, bpm } = useProjectStore();
   

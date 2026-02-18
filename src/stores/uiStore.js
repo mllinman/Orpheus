@@ -31,7 +31,7 @@ export const useUIStore = create((set, get) => ({
     selectedNotes: [],
 
     // Tool
-    activeTool: 'pointer', // pointer | range | draw | split | erase | automation | mute
+    activeTool: 'pointer', // pointer | range | draw | split | erase | automation | mute | smart | razor | stretch | slip
     snapEnabled: true,
     snapValue: 1, // beats (1 = quarter note)
 
@@ -39,7 +39,17 @@ export const useUIStore = create((set, get) => ({
     contextMenu: null, // { x, y, items }
 
     // Modal
-    activeModal: null, // 'settings' | 'export' | 'about' | null
+    activeModal: null, // 'settings' | 'export' | 'about' | 'hotkeys' | 'templates' | null
+
+    // Panels
+    showUndoHistory: false,
+    showSessionView: false,
+
+    // Track Icons
+    trackIcons: {}, // { trackId: emoji }
+
+    // Custom Hotkeys
+    customHotkeys: {}, // { keyCombo: actionName }
 
     // Playhead animation
     isAnimating: false,
@@ -78,4 +88,43 @@ export const useUIStore = create((set, get) => ({
     closeModal: () => set({ activeModal: null }),
 
     setIsAnimating: (v) => set({ isAnimating: v }),
+
+    // Phase 24 toggles
+    toggleUndoHistory: () => set(s => ({ showUndoHistory: !s.showUndoHistory })),
+    toggleSessionView: () => set(s => ({ showSessionView: !s.showSessionView })),
+
+    setTrackIcon: (trackId, emoji) => set(s => ({ trackIcons: { ...s.trackIcons, [trackId]: emoji } })),
+
+    setCustomHotkey: (keyCombo, action) => set(s => {
+        const updated = { ...s.customHotkeys, [keyCombo]: action };
+        localStorage.setItem('orpheus_hotkeys', JSON.stringify(updated));
+        return { customHotkeys: updated };
+    }),
+
+    removeCustomHotkey: (keyCombo) => set(s => {
+        const updated = { ...s.customHotkeys };
+        delete updated[keyCombo];
+        localStorage.setItem('orpheus_hotkeys', JSON.stringify(updated));
+        return { customHotkeys: updated };
+    }),
+
+    loadCustomHotkeys: () => {
+        const saved = localStorage.getItem('orpheus_hotkeys');
+        if (saved) set({ customHotkeys: JSON.parse(saved) });
+    },
+
+    zoomToFit: () => {
+        // Calculate optimal zoom to show all clips
+        const store = require('./projectStore').useProjectStore?.getState?.();
+        if (!store) return;
+        let maxBeat = 32;
+        for (const t of store.tracks) {
+            for (const c of t.clips) {
+                maxBeat = Math.max(maxBeat, c.startBeat + c.lengthBeats);
+            }
+        }
+        // Assume ~1200px viewport width
+        const targetZoom = Math.max(10, Math.min(200, 1200 / maxBeat));
+        set({ horizontalZoom: targetZoom });
+    },
 }));
