@@ -315,6 +315,13 @@ export class AudioEngine {
                         const entry = audioBufferManager.getBuffer(clip.bufferId);
                         if (!entry || !entry.buffer) continue;
 
+                        const audioOffset = Math.max(0, offset - clipStartTime) + (clip.offset || 0);
+                        const when = now + Math.max(0, clipStartTime - offset);
+                        const duration = Math.min(
+                            entry.buffer.duration - audioOffset,
+                            clipEndTime - Math.max(offset, clipStartTime)
+                        );
+
                         const source = this.context.createBufferSource();
                         source.buffer = entry.buffer;
                         const clipGain = this.context.createGain();
@@ -351,13 +358,6 @@ export class AudioEngine {
                         source.connect(clipGain);
                         // Connect to entry of track chain (Effects -> TrackGain)
                         clipGain.connect(entryNode);
-
-                        const audioOffset = Math.max(0, offset - clipStartTime) + (clip.offset || 0);
-                        const when = now + Math.max(0, clipStartTime - offset);
-                        const duration = Math.min(
-                            entry.buffer.duration - audioOffset,
-                            clipEndTime - Math.max(offset, clipStartTime)
-                        );
 
                         if (duration > 0) {
                             // Apply Autotune (Simple Detune for now)
