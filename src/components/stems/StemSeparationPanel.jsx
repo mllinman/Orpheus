@@ -31,12 +31,17 @@ export default function StemSeparationPanel() {
       if (useAI) {
         // ─── AI Processing (Client Side) ───
         const track = tracks.find(t => t.id === selectedClipTrackId);
-        const clip = track?.clips.find(c => c.id === selectedClipId);
-        
-        if (!clip || !clip.bufferId) throw new Error('No audio clip selected');
+        if (!clip) throw new Error('No audio clip selected');
+
+        // Check if buffer exists (Demo clips have no bufferId, reloaded projects lose buffer)
+        if (!clip.bufferId) {
+            throw new Error('This clip has no audio data (it might be a demo clip). Please import a real audio file.');
+        }
         
         const bufferEntry = audioBufferManager.getBuffer(clip.bufferId);
-        if (!bufferEntry) throw new Error('Audio buffer not found');
+        if (!bufferEntry) {
+            throw new Error('Audio buffer not found in memory. If you reloaded the page, please re-import your audio file.');
+        }
 
         setStatus('Loading AI Model (this may take a moment)...');
         
