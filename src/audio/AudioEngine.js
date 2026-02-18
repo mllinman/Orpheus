@@ -318,7 +318,36 @@ export class AudioEngine {
                         const source = this.context.createBufferSource();
                         source.buffer = entry.buffer;
                         const clipGain = this.context.createGain();
-                        clipGain.gain.value = clip.gain || 1;
+                        // Initialize gain at 0 if fading in, else clip.gain
+                        const baseGain = clip.gain || 1;
+                        const fadeInDur = clip.fadeIn || 0;
+                        const fadeOutDur = clip.fadeOut || 0;
+
+                        // Start value
+                        if (fadeInDur > 0) {
+                            clipGain.gain.setValueAtTime(0, when);
+                            clipGain.gain.linearRampToValueAtTime(baseGain, when + Math.min(fadeInDur, duration));
+                        } else {
+                            clipGain.gain.setValueAtTime(baseGain, when);
+                        }
+
+                        // Fade out
+                        if (fadeOutDur > 0) {
+                            // Ensure we don't start fade out before fade in finishes? 
+                            // Or just ramp from whatever current is.
+                            // Fade out starts at end - fadeOutDur.
+                            const fadeOutStart = when + duration - fadeOutDur;
+                            if (fadeOutStart > when) {
+                                clipGain.gain.setValueAtTime(baseGain, fadeOutStart);
+                                clipGain.gain.linearRampToValueAtTime(0.001, when + duration);
+                            } else {
+                                // Short clip, overlap? Just ramp down from start?
+                                // Simplified: if overlap, intersection logic is hard. 
+                                // Let's just assume fades valid.
+                                clipGain.gain.linearRampToValueAtTime(0.001, when + duration);
+                            }
+                        }
+
                         source.connect(clipGain);
                         // Connect to entry of track chain (Effects -> TrackGain)
                         clipGain.connect(entryNode);
@@ -336,8 +365,22 @@ export class AudioEngine {
                                 source.detune.value = track.autotune.retune || 0;
                             }
 
-                            source.start(when, audioOffset, duration);
-                            this.scheduledSources.push({ source, trackId: track.id });
+                            if (clip.isReversed) {
+                                try {
+                                    source.playbackRate.value = -1;
+                                    const startPoint = audioOffset + duration;
+                                    if (startPoint <= entry.buffer.duration + 0.001) {
+                                        source.start(when, startPoint, duration);
+                                        this.scheduledSources.push({ source, trackId: track.id });
+                                    }
+                                } catch (e) {
+                                    // Fallback if issues
+                                    console.warn('Reverse playback fail', e);
+                                }
+                            } else {
+                                source.start(when, audioOffset, duration);
+                                this.scheduledSources.push({ source, trackId: track.id });
+                            }
                         }
                     } else if (clip.type === 'audio' && !clip.bufferId) {
                         // Demo audio clips without real buffers — generate noise burst

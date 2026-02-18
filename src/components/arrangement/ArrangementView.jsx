@@ -12,8 +12,7 @@ export default function ArrangementView() {
   const { horizontalZoom, verticalZoom, trackHeaderWidth } = useUIStore();
   const scrollRef = useRef(null);
   const headerScrollRef = useRef(null);
-  const setPlayheadPosition = useProjectStore(s => s.setPlayheadPosition);
-  const bpm = useProjectStore(s => s.bpm);
+  const { setPlayheadPosition, bpm, tracks, splitClip } = useProjectStore();
 
   const trackHeight = 80 * verticalZoom;
   const totalBars = 64;

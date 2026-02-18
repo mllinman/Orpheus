@@ -44,6 +44,7 @@ const createAudioClip = (trackId, startBeat, lengthBeats, name) => ({
     gain: 1,
     fadeIn: 0,
     fadeOut: 0,
+    isReversed: false,
     waveformData: generateWaveformData(500, 'random'),
     color: null,
 });
@@ -450,6 +451,63 @@ export const useProjectStore = create((set, get) => ({
             } : t
         )
     })),
+
+    // Advanced Editing
+    splitClip: (trackId, clipId, splitBeat) => {
+        const state = get();
+        const track = state.tracks.find(t => t.id === trackId);
+        if (!track) return;
+        const clip = track.clips.find(c => c.id === clipId);
+        if (!clip) return;
+
+        // validation
+        if (splitBeat <= clip.startBeat || splitBeat >= clip.startBeat + clip.lengthBeats) return;
+
+        state._pushUndo();
+
+        const firstLength = splitBeat - clip.startBeat;
+        const secondLength = clip.lengthBeats - firstLength;
+
+        // First part (matches original start, shorter length)
+        const leftClip = {
+            ...clip,
+            lengthBeats: firstLength,
+            // fadeIn/Out logic: keep fadeIn, reset fadeOut? 
+            // For non-destructive split, we usually want to keep defaults unless user set them.
+            // If user had a fadeOut on the original clip, it should probably move to the right clip?
+            // For now, simple split.
+            fadeOut: 0 // Remove fade out from left part
+        };
+
+        // Second part (starts at split, offset increases)
+        const rightClip = {
+            ...clip,
+            id: uid(),
+            startBeat: splitBeat,
+            lengthBeats: secondLength,
+            offset: clip.offset + (firstLength / state.bpm) * 60, // Add time offset
+            fadeIn: 0, // Remove fade in from right part
+            fadeOut: clip.fadeOut // Keep original fade out
+        };
+
+        set(s => ({
+            tracks: s.tracks.map(t => t.id === trackId ? {
+                ...t,
+                clips: t.clips.map(c => c.id === clipId ? leftClip : c).concat(rightClip)
+            } : t)
+        }));
+    },
+
+    reverseClip: (trackId, clipId) => {
+        const state = get();
+        state._pushUndo();
+        set(s => ({
+            tracks: s.tracks.map(t => t.id === trackId ? {
+                ...t,
+                clips: t.clips.map(c => c.id === clipId ? { ...c, isReversed: !c.isReversed } : c)
+            } : t)
+        }));
+    },
 
     // MIDI note editing
     addNote: (trackId, clipId, note) => set((state) => ({

@@ -4,7 +4,14 @@ import { useProjectStore } from '../../stores/projectStore';
 
 export default function TrackLane({ track, trackIndex, height, pixelsPerBeat, totalWidth }) {
   const canvasRef = useRef(null);
-  const { selectedClipId, setSelectedClip, activeTool } = useUIStore();
+export default function TrackLane({ track, trackIndex, height, pixelsPerBeat, totalWidth }) {
+  const canvasRef = useRef(null);
+  const { selectedClipId, setSelectedClip, activeTool, showContextMenu } = useUIStore();
+  const { splitClip, updateClip, removeClip, reverseClip, bpm } = useProjectStore();
+  
+  // Drag state for fades
+  const [dragState, setDragState] = React.useState(null); // { type: 'fadeIn'|'fadeOut', clipId, startX, startVal }
+  const [hoverState, setHoverState] = React.useState(null); // 'fadeIn' | 'fadeOut' | null
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -37,7 +44,7 @@ export default function TrackLane({ track, trackIndex, height, pixelsPerBeat, to
 
     // Draw clips
     for (const clip of track.clips) {
-      drawClip(ctx, clip, track, pixelsPerBeat, height, selectedClipId === clip.id);
+      drawClip(ctx, clip, track, pixelsPerBeat, height, selectedClipId === clip.id, bpm);
     }
 
     // Bottom border
@@ -48,38 +55,159 @@ export default function TrackLane({ track, trackIndex, height, pixelsPerBeat, to
     ctx.lineTo(canvas.width, canvas.height - 0.5);
     ctx.stroke();
 
-  }, [track, trackIndex, height, pixelsPerBeat, totalWidth, selectedClipId]);
+  }, [track, trackIndex, height, pixelsPerBeat, totalWidth, selectedClipId, bpm]);
 
-  const handleClick = useCallback((e) => {
-    const canvas = canvasRef.current;
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
+  // Helper to get mouse info
+  const getMouseInfo = (e) => {
+      const canvas = canvasRef.current;
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      return { x, y };
+  };
 
-    // Find clicked clip
-    for (const clip of track.clips) {
-      const clipX = clip.startBeat * pixelsPerBeat;
-      const clipW = clip.lengthBeats * pixelsPerBeat;
-      if (x >= clipX && x <= clipX + clipW) {
-        setSelectedClip(track.id, clip.id);
-        return;
+  const handleMouseDown = useCallback((e) => {
+      const { x, y } = getMouseInfo(e);
+      
+      // Check for fade handles first
+      for (const clip of track.clips) {
+          const cx = clip.startBeat * pixelsPerBeat;
+          const cw = clip.lengthBeats * pixelsPerBeat;
+          const fadeW = 10; // Handle width
+          
+          if (clip.type === 'audio') {
+              // Fade In Handle (Top Left)
+              if (Math.abs(x - (cx + (clip.fadeIn || 0) * (bpm/60) * pixelsPerBeat)) < fadeW && y < 20) {
+                  setDragState({ type: 'fadeIn', clipId: clip.id, startX: x, startVal: clip.fadeIn || 0 });
+                 return;
+              }
+              // Fade Out Handle (Top Right)
+              if (Math.abs(x - (cx + cw - (clip.fadeOut || 0) * (bpm/60) * pixelsPerBeat)) < fadeW && y < 20) {
+                  setDragState({ type: 'fadeOut', clipId: clip.id, startX: x, startVal: clip.fadeOut || 0 });
+                  return;
+              }
+          }
       }
-    }
-    // Click on empty space
-    setSelectedClip(null, null);
-  }, [track, pixelsPerBeat, setSelectedClip]);
+
+      // Normal Click / Split
+      for (const clip of track.clips) {
+        const clipX = clip.startBeat * pixelsPerBeat;
+        const clipW = clip.lengthBeats * pixelsPerBeat;
+        if (x >= clipX && x <= clipX + clipW) {
+             if (activeTool === 'split') {
+                 const splitBeat = x / pixelsPerBeat;
+                 splitClip(track.id, clip.id, splitBeat);
+             } else {
+                 setSelectedClip(track.id, clip.id);
+             }
+             return;
+        }
+      }
+      setSelectedClip(null, null);
+  }, [track, pixelsPerBeat, activeTool, splitClip, setSelectedClip, bpm]);
+
+  const handleMouseMove = useCallback((e) => {
+      const { x, y } = getMouseInfo(e);
+
+      if (dragState) {
+          const clip = track.clips.find(c => c.id === dragState.clipId);
+          if (!clip) return;
+          
+          const deltaPx = x - dragState.startX;
+          const deltaTime = (deltaPx / pixelsPerBeat) * (60 / bpm);
+          
+          if (dragState.type === 'fadeIn') {
+              const newVal = Math.max(0, Math.min(clip.lengthBeats * (60/bpm), dragState.startVal + deltaTime));
+              updateClip(track.id, clip.id, { fadeIn: newVal });
+          } else {
+              const newVal = Math.max(0, Math.min(clip.lengthBeats * (60/bpm), dragState.startVal - deltaTime));
+              updateClip(track.id, clip.id, { fadeOut: newVal });
+          }
+          return;
+      }
+
+      // Hover detection
+      let hit = null;
+      for (const clip of track.clips) {
+          if (clip.type !== 'audio') continue;
+          const cx = clip.startBeat * pixelsPerBeat;
+          const cw = clip.lengthBeats * pixelsPerBeat;
+          const fadeW = 10;
+          const inX = cx + (clip.fadeIn || 0) * (bpm/60) * pixelsPerBeat;
+          const outX = cx + cw - (clip.fadeOut || 0) * (bpm/60) * pixelsPerBeat;
+
+          if (Math.abs(x - inX) < fadeW && y < 20) hit = 'fadeIn';
+          else if (Math.abs(x - outX) < fadeW && y < 20) hit = 'fadeOut';
+      }
+      setHoverState(hit);
+
+  }, [dragState, track, pixelsPerBeat, bpm, updateClip]);
+
+  const handleMouseUp = useCallback(() => {
+      setDragState(null);
+  }, []);
+
+  const handleContextMenu = useCallback((e) => {
+      e.preventDefault();
+      const { x, y } = getMouseInfo(e);
+      
+      for (const clip of track.clips) {
+          const clipX = clip.startBeat * pixelsPerBeat;
+          const clipW = clip.lengthBeats * pixelsPerBeat;
+          if (x >= clipX && x <= clipX + clipW) {
+             showContextMenu(e.clientX, e.clientY, [
+                 { label: `Rename "${clip.name}"`, action: () => {
+                     const newName = window.prompt('Rename Clip:', clip.name);
+                     if (newName) updateClip(track.id, clip.id, { name: newName });
+                 }},
+                 { divider: true },
+                 { label: 'Split at Cursor', action: () => {
+                     const splitBeat = x / pixelsPerBeat;
+                     splitClip(track.id, clip.id, splitBeat);
+                 }},
+                 { label: clip.isReversed ? 'Un-Reverse Audio' : 'Reverse Audio', action: () => {
+                     if (clip.type === 'audio') reverseClip(track.id, clip.id);
+                 }},
+                 { divider: true },
+                 { label: 'Delete', danger: true, action: () => removeClip(track.id, clip.id) }
+             ]);
+             return;
+          }
+      }
+  }, [track, pixelsPerBeat, showContextMenu, splitClip, updateClip, removeClip, reverseClip]);
+
+  // Global mouse up to catch release outside canvas
+  useEffect(() => {
+      window.addEventListener('mouseup', handleMouseUp);
+      window.addEventListener('mousemove', handleMouseMove); // Handle drag outside
+      return () => {
+          window.removeEventListener('mouseup', handleMouseUp);
+          window.removeEventListener('mousemove', handleMouseMove);
+      };
+  }, [handleMouseUp, handleMouseMove]);
+
+
+  const getCursor = () => {
+      if (hoverState || dragState) return 'ew-resize';
+      if (activeTool === 'split') return 'cell';
+      return 'default';
+  };
 
   return (
-    <div className="track-lane" style={{ height }}>
+    <div className="track-lane" style={{ height, cursor: getCursor() }}>
       <canvas
         ref={canvasRef}
         className="track-lane-canvas"
-        onClick={handleClick}
+        onMouseDown={handleMouseDown}
+        onContextMenu={handleContextMenu}
+        // remove onClick, move logic to onMouseDown to handle drag
       />
     </div>
   );
 }
 
-function drawClip(ctx, clip, track, pxPerBeat, laneHeight, isSelected) {
+
+function drawClip(ctx, clip, track, pxPerBeat, laneHeight, isSelected, bpm) {
   const x = clip.startBeat * pxPerBeat;
   const w = clip.lengthBeats * pxPerBeat;
   const y = 2;
@@ -98,6 +226,56 @@ function drawClip(ctx, clip, track, pxPerBeat, laneHeight, isSelected) {
   ctx.beginPath();
   ctx.roundRect(x, y, w, 18, [r, r, 0, 0]);
   ctx.fill();
+
+  // Fades Visualization
+  if (clip.type === 'audio' && bpm) {
+      if (clip.fadeIn > 0 || clip.fadeOut > 0) {
+          ctx.fillStyle = 'rgba(255,255,255,0.2)';
+          
+          if (clip.fadeIn) {
+              const fadeInBeats = clip.fadeIn * (bpm / 60);
+              const fadeW = Math.min(w, fadeInBeats * pxPerBeat);
+              ctx.beginPath();
+              ctx.moveTo(x, y); // Top Left
+              ctx.lineTo(x + fadeW, y); // Top Right of fade
+              ctx.lineTo(x, y + 18); // Bottom Left of header
+              ctx.fill();
+          }
+          if (clip.fadeOut) {
+              const fadeOutBeats = clip.fadeOut * (bpm / 60);
+              const fadeW = Math.min(w, fadeOutBeats * pxPerBeat);
+              ctx.beginPath();
+              ctx.moveTo(x + w, y); // Top Right
+              ctx.lineTo(x + w - fadeW, y); // Top Left of fade
+              ctx.lineTo(x + w, y + 18); // Bottom Right of header
+              ctx.fill();
+          }
+      }
+      
+      // Draw Handles (Always visible if audio?)
+      // Actually only checking logic used them in hover...
+      // Let's draw small circles/triangles if we want them visible always
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      const fadeHandleW = 10;
+      
+      // Fade In Handle
+      const inBeats = (clip.fadeIn || 0) * (bpm / 60);
+      const inX = x + inBeats * pxPerBeat;
+      ctx.beginPath();
+      ctx.moveTo(inX, y);
+      ctx.lineTo(inX + 6, y);
+      ctx.lineTo(inX, y + 6);
+      ctx.fill();
+      
+      // Fade Out Handle
+      const outBeats = (clip.fadeOut || 0) * (bpm / 60);
+      const outX = x + w - outBeats * pxPerBeat;
+      ctx.beginPath();
+      ctx.moveTo(outX, y);
+      ctx.lineTo(outX - 6, y);
+      ctx.lineTo(outX, y + 6);
+      ctx.fill();
+  }
 
   // Clip name
   ctx.fillStyle = '#fff';

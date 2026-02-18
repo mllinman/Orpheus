@@ -11,6 +11,7 @@ export default function PianoRollView() {
   const canvasRef = useRef(null);
   const pianoRef = useRef(null);
   const scrollRef = useRef(null);
+  const velocityScrollRef = useRef(null);
   const { horizontalZoom, snapValue, snapEnabled, selectedClipTrackId, selectedClipId } = useUIStore();
   const tracks = useProjectStore(s => s.tracks);
   const { addNote, removeNote, updateNote } = useProjectStore();
@@ -194,7 +195,20 @@ export default function PianoRollView() {
     addNote(selectedTrack.id, selectedClip.id, newNote);
   }, [selectedClip, selectedTrack, horizontalZoom, snapValue, snapEnabled, addNote, removeNote]);
 
-  // Scroll to middle C on mount
+  // Sync Scroll
+  const handleScroll = (e) => {
+      if (velocityScrollRef.current) {
+          velocityScrollRef.current.scrollLeft = e.target.scrollLeft;
+      }
+  };
+
+  const handleVelocityScroll = (e) => {
+      if (scrollRef.current) {
+          scrollRef.current.scrollLeft = e.target.scrollLeft;
+      }
+  };
+
+  // Scroll to middle C on mount (only once)
   useEffect(() => {
     if (scrollRef.current) {
       const middleCY = (TOTAL_NOTES - 60) * NOTE_HEIGHT;
@@ -212,13 +226,45 @@ export default function PianoRollView() {
           </span>
         )}
       </div>
-      <div className="pianoroll-content" ref={scrollRef}>
-        <canvas ref={pianoRef} className="piano-keys-canvas" />
-        <canvas
-          ref={canvasRef}
-          className="pianoroll-grid-canvas"
-          onClick={handleCanvasClick}
-        />
+      <div className="pianoroll-split-container">
+        {/* Keys + Grid Section */}
+        <div className="pianoroll-main-row">
+            <div className="piano-keys-container">
+                <canvas ref={pianoRef} className="piano-keys-canvas" />
+            </div>
+            <div 
+                className="pianoroll-grid-scroll" 
+                ref={scrollRef} 
+                onScroll={handleScroll}
+            >
+                <canvas
+                    ref={canvasRef}
+                    className="pianoroll-grid-canvas"
+                    onClick={handleCanvasClick}
+                    // onMouseDown...
+                />
+            </div>
+        </div>
+
+        {/* Velocity Lane */}
+        <div className="pianoroll-velocity-row" style={{ height: 100 }}>
+            <div className="piano-keys-spacer" style={{ width: PIANO_WIDTH, borderRight: '1px solid #333' }}>
+                <span className="text-muted" style={{ fontSize: 10, padding: 4 }}>VEL</span>
+            </div>
+            <div 
+                className="pianoroll-velocity-scroll" 
+                ref={velocityScrollRef}
+                onScroll={handleVelocityScroll}
+            >
+                <VelocityLane 
+                    notes={selectedClip?.notes || []} 
+                    clipLength={clipLength}
+                    zoom={horizontalZoom}
+                    gridWidth={gridWidth}
+                    onUpdateVelocity={(noteId, vel) => updateNote(selectedTrack.id, selectedClip.id, noteId, { velocity: vel })}
+                />
+            </div>
+        </div>
       </div>
       {!selectedClip && (
         <div className="pianoroll-empty">
@@ -227,4 +273,98 @@ export default function PianoRollView() {
       )}
     </div>
   );
+}
+
+function VelocityLane({ notes, clipLength, zoom, gridWidth, onUpdateVelocity }) {
+    const canvasRef = useRef(null);
+
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        canvas.width = gridWidth;
+        canvas.height = 100;
+
+        // Background
+        ctx.fillStyle = '#111';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Grid lines (beats)
+        for (let beat = 0; beat <= clipLength; beat++) {
+            const x = beat * zoom;
+            const isBar = beat % 4 === 0;
+            ctx.strokeStyle = isBar ? '#2a2a42' : '#1a1a2e';
+            ctx.lineWidth = isBar ? 1 : 0.5;
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, canvas.height);
+            ctx.stroke();
+        }
+
+        // Draw Velocity Bars
+        notes.forEach(note => {
+            const x = note.startBeat * zoom;
+            const w = Math.max(4, note.lengthBeats * zoom);
+            const h = (note.velocity / 127) * canvas.height;
+            const y = canvas.height - h;
+
+            ctx.fillStyle = `rgb(100, 150, 255)`; // Blue-ish
+            ctx.fillRect(x, y, w, h);
+
+            // Handle head
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(x, y, w, 2);
+        });
+
+        // Line at top
+        ctx.strokeStyle = '#333';
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(canvas.width, 0);
+        ctx.stroke();
+
+    }, [notes, clipLength, zoom, gridWidth]);
+
+    const handleMouseDown = (e) => {
+        const canvas = canvasRef.current;
+        const rect = canvas.getBoundingClientRect();
+        const startY = e.clientY;
+        const x = e.clientX - rect.left;
+        
+        // Find note at x
+        // If multiple notes overlap at X, pick the one currently playing? 
+        // Or finding the one with closest center?
+        // Simple: find first matching note.
+        const beat = x / zoom;
+        const note = notes.find(n => beat >= n.startBeat && beat <= n.startBeat + n.lengthBeats);
+        
+        if (note) {
+             const onMove = (mv) => {
+                 const rect = canvas.getBoundingClientRect();
+                 const y = Math.max(0, Math.min(canvas.height, mv.clientY - rect.top));
+                 const val = 127 - (y / canvas.height) * 127;
+                 onUpdateVelocity(note.id, Math.round(val));
+             };
+             const onUp = () => {
+                 window.removeEventListener('mousemove', onMove);
+                 window.removeEventListener('mouseup', onUp);
+             };
+             window.addEventListener('mousemove', onMove);
+             window.addEventListener('mouseup', onUp);
+             
+             // Initial set
+             const y = Math.max(0, Math.min(canvas.height, e.clientY - rect.top));
+             const val = 127 - (y / canvas.height) * 127;
+             onUpdateVelocity(note.id, Math.round(val));
+        }
+    };
+
+    return (
+        <canvas 
+            ref={canvasRef} 
+            className="velocity-lane-canvas"
+            style={{ width: gridWidth, height: 100, display: 'block' }}
+            onMouseDown={handleMouseDown}
+        />
+    );
 }
