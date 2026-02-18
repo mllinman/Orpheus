@@ -1,61 +1,35 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
+import { useProjectStore } from '../../stores/projectStore';
+import { useUIStore } from '../../stores/uiStore';
 
-const STEMS = [
-  { id: 'vocals', label: 'Vocals', icon: '🎤', color: '#e91e8a' },
-  { id: 'drums',  label: 'Drums',  icon: '🥁', color: '#ff7043' },
-  { id: 'bass',   label: 'Bass',   icon: '🎸', color: '#29b6f6' },
-  { id: 'other',  label: 'Other',  icon: '🎹', color: '#66bb6a' },
+const STEM_TYPES = [
+  { id: 'vocals', label: 'Vocals', icon: '🎤', color: '#e91e8a', desc: 'High-pass filtered for vocal isolation' },
+  { id: 'drums',  label: 'Drums',  icon: '🥁', color: '#ff7043', desc: 'Low-shelf boost & high-cut for punch' },
+  { id: 'bass',   label: 'Bass',   icon: '🎸', color: '#29b6f6', desc: 'Low-pass filtered for bottom end' },
+  { id: 'other',  label: 'Other',  icon: '🎹', color: '#66bb6a', desc: 'Mid-band focused for instruments' },
 ];
 
 export default function StemSeparationPanel() {
-  const [enabled, setEnabled] = useState(false);
-  const [stems, setStems] = useState(
-    Object.fromEntries(STEMS.map(s => [s.id, { volume: 1, mute: false, solo: false, level: 0 }]))
-  );
-  const [processing, setProcessing] = useState(false);
-  const animRef = useRef(null);
+  const { processStems } = useProjectStore();
+  const { selectedClipId, selectedClipTrackId } = useUIStore();
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [successMsg, setSuccessMsg] = useState('');
 
-  // Simulate level animation
-  useEffect(() => {
-    const animate = () => {
-      if (enabled) {
-        setStems(prev => {
-          const next = { ...prev };
-          for (const key of Object.keys(next)) {
-            const base = next[key].mute ? 0 : next[key].volume;
-            next[key] = {
-              ...next[key],
-              level: base * (0.3 + Math.random() * 0.5),
-            };
-          }
-          return next;
-        });
-      }
-      animRef.current = requestAnimationFrame(animate);
-    };
-    animRef.current = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(animRef.current);
-  }, [enabled]);
-
-  const toggleMute = (id) => {
-    setStems(prev => ({ ...prev, [id]: { ...prev[id], mute: !prev[id].mute } }));
+  const handleProcess = async () => {
+    if (!selectedClipId) return;
+    setIsProcessing(true);
+    
+    // Simulate slight delay for "processing" feel, though logic is instant
+    await new Promise(r => setTimeout(r, 800));
+    
+    processStems();
+    
+    setIsProcessing(false);
+    setSuccessMsg('Created 4 stem tracks in arrangement!');
+    setTimeout(() => setSuccessMsg(''), 3000);
   };
 
-  const toggleSolo = (id) => {
-    setStems(prev => ({ ...prev, [id]: { ...prev[id], solo: !prev[id].solo } }));
-  };
-
-  const setVolume = (id, vol) => {
-    setStems(prev => ({ ...prev, [id]: { ...prev[id], volume: vol } }));
-  };
-
-  const handleSeparate = () => {
-    setProcessing(true);
-    setTimeout(() => {
-      setProcessing(false);
-      setEnabled(true);
-    }, 2000);
-  };
+  const isValidSelection = !!selectedClipId && !!selectedClipTrackId;
 
   return (
     <div className="stem-panel">
@@ -63,110 +37,53 @@ export default function StemSeparationPanel() {
         <div className="stem-title-row">
           <span className="stem-icon">🎚</span>
           <span className="stem-title">STEM SEPARATION</span>
-          <button
-            className={`btn btn-sm ${enabled ? 'active' : ''}`}
-            onClick={() => setEnabled(!enabled)}
-          >
-            {enabled ? 'ON' : 'OFF'}
-          </button>
         </div>
-        {!enabled && !processing && (
-          <button className="btn stem-separate-btn" onClick={handleSeparate}>
-            ✨ Separate Stems
-          </button>
-        )}
-        {processing && (
-          <div className="stem-processing">
-            <div className="stem-progress-bar">
-              <div className="stem-progress-fill animate-pulse" />
-            </div>
-            <span className="text-muted" style={{ fontSize: 'var(--text-xs)' }}>Analyzing audio...</span>
-          </div>
-        )}
       </div>
 
-      {enabled && (
-        <div className="stem-channels">
-          {STEMS.map(stem => {
-            const state = stems[stem.id];
-            const hasSolo = Object.values(stems).some(s => s.solo);
-            const isActive = hasSolo ? state.solo && !state.mute : !state.mute;
-            const segments = 16;
-            const litSegments = Math.floor((isActive ? state.level : 0) * segments);
+      <div className="stem-content" style={{ padding: 20 }}>
+        <p className="text-muted" style={{ marginBottom: 20 }}>
+          Split the selected audio clip into four separate stems using frequency-based separation.
+          This will create 4 new tracks in your arrangement.
+        </p>
 
-            return (
-              <div 
-                key={stem.id} 
-                className={`stem-channel ${!isActive ? 'inactive' : ''}`}
-                draggable="true"
-                onDragStart={(e) => {
-                  e.dataTransfer.setData('application/orpheus-stem', JSON.stringify({ id: stem.id, label: stem.label, color: stem.color }));
-                  e.dataTransfer.effectAllowed = 'copy';
-                }}
-                style={{ cursor: 'grab' }}
-              >
-                <div className="stem-channel-header">
-                  <span className="stem-emoji">{stem.icon}</span>
-                  <span className="stem-label">{stem.label}</span>
-                </div>
-
-                <div className="stem-meter">
-                  {Array.from({ length: segments }).map((_, i) => {
-                    const idx = segments - 1 - i;
-                    const lit = idx < litSegments;
-                    return (
-                      <div
-                        key={i}
-                        className="stem-meter-seg"
-                        style={{
-                          background: lit ? stem.color : 'rgba(255,255,255,0.05)',
-                          boxShadow: lit ? `0 0 4px ${stem.color}40` : 'none',
-                        }}
-                      />
-                    );
-                  })}
-                </div>
-
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.01"
-                  value={state.volume}
-                  onChange={(e) => setVolume(stem.id, parseFloat(e.target.value))}
-                  className="stem-fader"
-                  style={{ accentColor: stem.color }}
-                />
-
-                <div className="stem-channel-btns">
-                  <button
-                    className={`track-btn ${state.mute ? 'mute-active' : ''}`}
-                    onClick={() => toggleMute(stem.id)}
-                  >
-                    M
-                  </button>
-                  <button
-                    className={`track-btn ${state.solo ? 'solo-active' : ''}`}
-                    onClick={() => toggleSolo(stem.id)}
-                  >
-                    S
-                  </button>
-                </div>
-
-                <div className="stem-vol-label mono">
-                  {state.volume > 0 ? `${(20 * Math.log10(state.volume)).toFixed(1)} dB` : '-∞'}
-                </div>
+        <div className="stem-types-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
+          {STEM_TYPES.map(stem => (
+            <div key={stem.id} className="stem-type-card" style={{ 
+              background: 'var(--bg-elevated)', padding: 15, borderRadius: 8,
+              borderLeft: `3px solid ${stem.color}`
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                <span>{stem.icon}</span>
+                <span className="mono" style={{ fontWeight: 600 }}>{stem.label}</span>
               </div>
-            );
-          })}
+              <div style={{ fontSize: 'var(--text-xs)', opacity: 0.7 }}>{stem.desc}</div>
+            </div>
+          ))}
         </div>
-      )}
 
-      {enabled && (
-        <div className="stem-export-row">
-          <button className="btn btn-sm btn-ghost">Export All Stems</button>
+        <div className="stem-action-area" style={{ textAlign: 'center' }}>
+          {!isValidSelection ? (
+            <div className="alert-box" style={{ background: 'rgba(255,255,255,0.05)', padding: 10, borderRadius: 4 }}>
+              ⚠ Please select an audio clip in the arrangement/mixer to proceed.
+            </div>
+          ) : (
+            <button 
+              className={`btn btn-primary ${isProcessing ? 'loading' : ''}`}
+              onClick={handleProcess}
+              disabled={isProcessing}
+              style={{ width: '100%', padding: '12px', fontSize: 16 }}
+            >
+              {isProcessing ? 'Processing Audio...' : '✨ Separate Stems'}
+            </button>
+          )}
+          
+          {successMsg && (
+            <div style={{ marginTop: 10, color: 'var(--accent-success)' }} className="fade-in">
+              ✔ {successMsg}
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }

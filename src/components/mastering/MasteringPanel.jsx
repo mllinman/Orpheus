@@ -38,12 +38,13 @@ export default function MasteringPanel() {
   useEffect(() => {
     const animate = () => {
       if (enabled && !abBypass) {
-        setLufs(-14 + (Math.random() - 0.5) * 2);
+        const meters = audioEngine.getMasteringMeters();
+        setLufs(meters.lufs);
         setGainReduction({
-          low: -(Math.random() * 4),
-          mid: -(Math.random() * 5),
-          high: -(Math.random() * 3),
-          limiter: -(Math.random() * 2),
+          low: meters.gainReduction, // Simplified to single band gr for now
+          mid: meters.gainReduction,
+          high: meters.gainReduction,
+          limiter: meters.gainReduction * 1.5,
         });
       }
       animRef.current = requestAnimationFrame(animate);
@@ -145,8 +146,14 @@ export default function MasteringPanel() {
         <div className="mastering-section">
           <div className="mastering-section-label">GAIN</div>
           <div className="mastering-knob-row">
-            <KnobControl label="INPUT" value={inputTrim} min={-12} max={12} unit="dB" onChange={setInputTrim} />
-            <KnobControl label="OUTPUT" value={outputGain} min={-12} max={12} unit="dB" onChange={setOutputGain} />
+            <KnobControl 
+                label="INPUT" value={inputTrim} min={-12} max={12} unit="dB" 
+                onChange={(v) => { setInputTrim(v); /* connect to pre-gain if desired */ }} 
+            />
+            <KnobControl 
+                label="OUTPUT" value={outputGain} min={-12} max={12} unit="dB" 
+                onChange={(v) => { setOutputGain(v); audioEngine.masterGain.gain.value = Math.pow(10, v/20); }} 
+            />
           </div>
         </div>
 
@@ -154,10 +161,10 @@ export default function MasteringPanel() {
         <div className="mastering-section">
           <div className="mastering-section-label">PRE-EQ</div>
           <div className="mastering-knob-row">
-            <KnobControl label="LOW CUT" value={lowCut} min={20} max={200} unit="Hz" onChange={setLowCut} step={5} />
-            <KnobControl label="LOW" value={lowShelf} min={-6} max={6} unit="dB" onChange={setLowShelf} />
-            <KnobControl label="MID" value={midGain} min={-6} max={6} unit="dB" onChange={setMidGain} />
-            <KnobControl label="HIGH" value={highShelf} min={-6} max={6} unit="dB" onChange={setHighShelf} />
+            <KnobControl label="LOW CUT" value={lowCut} min={20} max={200} unit="Hz" onChange={(v) => { setLowCut(v); audioEngine.setMasteringParam('preEQ', 'lowCut', v); }} step={5} />
+            <KnobControl label="LOW" value={lowShelf} min={-6} max={6} unit="dB" onChange={(v) => { setLowShelf(v); audioEngine.setMasteringParam('preEQ', 'lowShelf', v); }} />
+            <KnobControl label="MID" value={midGain} min={-6} max={6} unit="dB" onChange={(v) => { setMidGain(v); audioEngine.setMasteringParam('preEQ', 'midGain', v); }} />
+            <KnobControl label="HIGH" value={highShelf} min={-6} max={6} unit="dB" onChange={(v) => { setHighShelf(v); audioEngine.setMasteringParam('preEQ', 'highShelf', v); }} />
           </div>
         </div>
 
@@ -165,9 +172,9 @@ export default function MasteringPanel() {
         <div className="mastering-section">
           <div className="mastering-section-label">MULTIBAND COMP</div>
           <div className="mastering-knob-row">
-            <CompBand label="LOW" threshold={lowThresh} reduction={gainReduction.low} onThreshChange={setLowThresh} />
-            <CompBand label="MID" threshold={midThresh} reduction={gainReduction.mid} onThreshChange={setMidThresh} />
-            <CompBand label="HIGH" threshold={highThresh} reduction={gainReduction.high} onThreshChange={setHighThresh} />
+            <CompBand label="LOW" threshold={lowThresh} reduction={gainReduction.low} onThreshChange={(v) => { setLowThresh(v); audioEngine.setMasteringParam('comp', 'threshold', v); }} />
+            <CompBand label="MID" threshold={midThresh} reduction={gainReduction.mid} onThreshChange={(v) => { setMidThresh(v); audioEngine.setMasteringParam('comp', 'threshold', v); }} />
+            <CompBand label="HIGH" threshold={highThresh} reduction={gainReduction.high} onThreshChange={(v) => { setHighThresh(v); audioEngine.setMasteringParam('comp', 'threshold', v); }} />
           </div>
         </div>
 
@@ -185,8 +192,8 @@ export default function MasteringPanel() {
         <div className="mastering-section">
           <div className="mastering-section-label">LIMITER</div>
           <div className="mastering-knob-row">
-            <KnobControl label="THRESH" value={limiterThresh} min={-6} max={0} unit="dB" onChange={setLimiterThresh} />
-            <KnobControl label="CEILING" value={limiterCeiling} min={-3} max={0} unit="dB" onChange={setLimiterCeiling} />
+            <KnobControl label="THRESH" value={limiterThresh} min={-60} max={0} unit="dB" onChange={(v) => { setLimiterThresh(v); audioEngine.setMasteringParam('limiter', 'threshold', v); }} />
+            <KnobControl label="CEILING" value={limiterCeiling} min={-3} max={0} unit="dB" onChange={(v) => { setLimiterCeiling(v); /* ceiling ignored in simple limiter */ }} />
             <GRMeter label="GR" value={gainReduction.limiter} />
           </div>
         </div>

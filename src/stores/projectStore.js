@@ -315,6 +315,67 @@ export const useProjectStore = create((set, get) => ({
         set({ tracks: newTracks });
     },
 
+
+    // ─── Stem Separation (Real-time Filtering) ───
+    processStems: () => {
+        const state = get();
+        const { selectedClipId, selectedClipTrackId } = useUIStore.getState();
+
+        if (!selectedClipId || !selectedClipTrackId) return;
+
+        const track = state.tracks.find(t => t.id === selectedClipTrackId);
+        if (!track) return;
+
+        const clip = track.clips.find(c => c.id === selectedClipId);
+        if (!clip) return;
+
+        state._pushUndo();
+        const baseTrackIndex = state.tracks.findIndex(t => t.id === selectedClipTrackId);
+        if (baseTrackIndex === -1) return;
+
+        // Helper to add stem track
+        const addStemTrack = (name, eqSettings) => {
+            const newTrackId = uid();
+            const newClip = { ...clip, id: uid(), bufferId: clip.bufferId }; // Clone clip
+
+            // Create EQ effect
+            const eqEffect = {
+                id: uid(),
+                type: 'eq',
+                active: true,
+                params: {
+                    low: 0, mid: 0, high: 0,
+                    lowFreq: 100, midFreq: 1000, highFreq: 5000,
+                    ...eqSettings
+                }
+            };
+
+            return {
+                id: newTrackId,
+                name: `${name} (${clip.name})`,
+                type: 'audio',
+                volume: 0.8,
+                pan: 0,
+                muted: false,
+                soloed: false,
+                color: getTrackColor(state.tracks.length),
+                clips: [newClip],
+                effects: [eqEffect]
+            };
+        };
+
+        const vocalTrack = addStemTrack('Vocals', { low: -24, mid: 3, high: 2, lowFreq: 300 }); // HPF approximation via low shelf cut
+        const drumTrack = addStemTrack('Drums', { low: 4, mid: -3, high: 4, lowFreq: 120, midFreq: 500, highFreq: 8000 });
+        const bassTrack = addStemTrack('Bass', { low: 6, mid: -24, high: -24, lowFreq: 250 }); // LPF approx
+        const otherTrack = addStemTrack('Other', { low: -6, mid: 4, high: -6, midFreq: 1500 }); // Band focused
+
+        const newTracks = [...state.tracks];
+        // Insert stems after the source track
+        newTracks.splice(baseTrackIndex + 1, 0, vocalTrack, drumTrack, bassTrack, otherTrack);
+
+        set({ tracks: newTracks });
+    },
+
     addClip: (trackId, clip) => set((state) => ({
         tracks: state.tracks.map(t =>
             t.id === trackId ? { ...t, clips: [...t.clips, clip] } : t
