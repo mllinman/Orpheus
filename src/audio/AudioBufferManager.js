@@ -17,8 +17,26 @@ class AudioBufferManager {
      * @returns {Promise<string>} bufferId
      */
     async loadFile(file) {
-        await audioEngine.init();
         const arrayBuffer = await file.arrayBuffer();
+        return this._processBuffer(arrayBuffer, file.name, file.size);
+    }
+
+    /**
+     * Load an audio file from a specific path (Electron only)
+     * @param {string} path - Absolute path to file
+     */
+    async loadFromPath(path) {
+        if (!window.electronAPI) throw new Error('Native file access requires Electron');
+        const buffer = await window.electronAPI.readFile(path);
+        // Electron sends Buffer (Uint8Array), we need ArrayBuffer
+        const arrayBuffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+        const fileName = path.split(/[/\\]/).pop();
+        // File size is byteLength
+        return this._processBuffer(arrayBuffer, fileName, arrayBuffer.byteLength, path);
+    }
+
+    async _processBuffer(arrayBuffer, fileName, fileSize, path = null) {
+        await audioEngine.init();
         const audioBuffer = await audioEngine.context.decodeAudioData(arrayBuffer);
         const id = `buf_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
@@ -27,11 +45,12 @@ class AudioBufferManager {
         this.buffers.set(id, {
             buffer: audioBuffer,
             waveformData,
-            fileName: file.name,
+            fileName,
+            path,
             duration: audioBuffer.duration,
             sampleRate: audioBuffer.sampleRate,
             channels: audioBuffer.numberOfChannels,
-            fileSize: file.size,
+            fileSize,
         });
 
         this._notify();

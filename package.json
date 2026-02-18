@@ -6,7 +6,26 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "electron:dev": "concurrently -k \"cross-env BROWSER=none npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron:build": "npm run build && electron-builder"
+  },
+  "main": "electron/main.js",
+  "build": {
+    "appId": "com.orpheus.daw",
+    "productName": "Orpheus DAW",
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist_electron"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "public/icon.png"
+    }
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -17,6 +36,11 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
-    "vite": "^6.0.0"
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "electron": "^40.4.1",
+    "electron-builder": "^26.7.0",
+    "vite": "^6.0.0",
+    "wait-on": "^9.0.4"
   }
 }
