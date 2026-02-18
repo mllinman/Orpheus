@@ -1,8 +1,12 @@
-const express = require('express');
-const path = require('path');
-const cors = require('cors');
-const { PrismaClient } = require('@prisma/client');
-require('dotenv').config();
+import express from 'express';
+import path from 'path';
+import cors from 'cors';
+import { PrismaClient } from '@prisma/client';
+import { fileURLToPath } from 'url';
+import 'dotenv/config';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const prisma = new PrismaClient();
